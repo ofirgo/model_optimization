@@ -70,31 +70,69 @@ def symmetric_selection_tensor(tensor_data: np.ndarray,
         # search for KL error is separated because the error method signature is different from the other error methods.
         # we use _kl_batch_error_function to allow calculation per_channel in a vectorized manner if necessary,
         # we pass it as argument to avoid exposing protected package member inside kl_symmetric_quantization_loss.
-        res = optimize.minimize(fun=lambda threshold: kl_symmetric_quantization_loss(_kl_batch_error_function,
-                                                                                     tensor_data,
-                                                                                     threshold,
-                                                                                     signed,
-                                                                                     per_channel,
-                                                                                     channel_axis),
-                                x0=tensor_max)
+        error_wrapper = lambda threshold: kl_symmetric_quantization_loss(_kl_batch_error_function,
+                                                                         tensor_data,
+                                                                         threshold,
+                                                                         signed,
+                                                                         per_channel,
+                                                                         channel_axis)
+        res = optimize.minimize(fun=error_wrapper, x0=tensor_max, jac=lambda x: loss_function_jac(x, f=error_wrapper))
+
         # res.x contains the actual optimized parameters result from optimize.minimize
         res = res.x if not per_channel else \
             np.reshape(res.x, get_output_shape(tensor_data.shape, channel_axis))
     else:
         error_function = get_threshold_selection_tensor_error_function(quant_error_method, p)
-        res = optimize.minimize(fun=lambda threshold: symmetric_quantization_loss(error_function,
-                                                                                  tensor_data,
-                                                                                  threshold,
-                                                                                  n_bits,
-                                                                                  signed,
-                                                                                  per_channel,
-                                                                                  channel_axis),
-                                x0=tensor_max)
+        error_wrapper = lambda threshold: symmetric_quantization_loss(error_function,
+                                                                      tensor_data,
+                                                                      threshold,
+                                                                      n_bits,
+                                                                      signed,
+                                                                      per_channel,
+                                                                      channel_axis)
+        res = optimize.minimize(fun=error_wrapper, x0=tensor_max, jac=lambda x: loss_function_jac(x, f=error_wrapper))
+
         # res.x contains the actual optimized parameters result from optimize.minimize
         res = res.x if not per_channel else \
             np.reshape(res.x, get_output_shape(tensor_data.shape, channel_axis))
 
     return {THRESHOLD: res}
+
+
+def loss_function_jac(x, f):
+    f0 = f(x)
+    rel_step = _eps_for_method(x.dtype, f0.dtype)
+    sign_x0 = (x >= 0).astype(float) * 2 - 1
+    h = rel_step * sign_x0 * np.maximum(1.0, np.abs(x))
+
+    x_next = x + h
+    f_next = f(x_next)
+
+    df = f_next - f0
+    dx = x_next - x
+    J_transposed = df / dx
+    J_transposed = np.ravel(J_transposed)
+    return J_transposed
+
+
+def _eps_for_method(x0_dtype, f0_dtype):
+    # the default EPS value
+    EPS = np.finfo(np.float64).eps
+
+    x0_is_fp = False
+    if np.issubdtype(x0_dtype, np.inexact):
+        # if you're a floating point type then over-ride the default EPS
+        EPS = np.finfo(x0_dtype).eps
+        x0_itemsize = np.dtype(x0_dtype).itemsize
+        x0_is_fp = True
+
+    if np.issubdtype(f0_dtype, np.inexact):
+        f0_itemsize = np.dtype(f0_dtype).itemsize
+        # choose the smallest itemsize between x0 and f0
+        if x0_is_fp and f0_itemsize < x0_itemsize:
+            EPS = np.finfo(f0_dtype).eps
+
+    return EPS ** 0.5
 
 
 def symmetric_selection_histogram(bins: np.ndarray,
