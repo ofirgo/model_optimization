@@ -194,6 +194,7 @@ def _quantize_model(fw_info: FrameworkInfo,
                                           fw_impl=fw_impl)
     if tb_w is not None:
         tb_w.add_graph(quantized_tg, 'after_quantization')
+
     ######################################
     # Back2Framework
     ######################################

@@ -20,6 +20,7 @@ from model_compression_toolkit.common.framework_implementation import FrameworkI
 from model_compression_toolkit.common.framework_info import FrameworkInfo
 from model_compression_toolkit.common.graph.base_graph import Graph
 from model_compression_toolkit.common.quantization.quantize_node import get_quantized_kernel_by_weights_qc
+from model_compression_toolkit.common.similarity_analyzer import compute_mse
 
 
 def quantize_graph_weights(graph_to_quantize: Graph,
@@ -51,6 +52,11 @@ def quantize_graph_weights(graph_to_quantize: Graph,
             common.Logger.debug(
                 f'Node name: {n.name} has the following quantization params: '
                 f'{str(n.final_weights_quantization_cfg.weights_quantization_params)}')
+
+            # compute MSE error for testing
+            tensor_data = n.get_weights_by_keys(fw_impl.constants.KERNEL)  # for computing MSE later
+            mse_score = compute_mse(tensor_data, quantized_kernel)
+            graph.user_info.update_weights_error(n.name, mse_score)
 
             # Set the kernel node to be the quantized kernel.
             n.set_weights_by_keys(fw_impl.constants.KERNEL, quantized_kernel)
