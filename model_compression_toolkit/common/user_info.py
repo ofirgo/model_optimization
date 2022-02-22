@@ -28,7 +28,7 @@ class UserInformation(object):
         self.input_scale = 1
         self.gptq_info_dict = dict()
         self.mixed_precision_cfg = None
-        self.weights_errors = dict()
+        # self.weights_errors = dict()
 
     def set_input_scale(self, scale_value: float):
         """
@@ -43,6 +43,6 @@ class UserInformation(object):
     def set_mixed_precision_cfg(self, mp_cfg:List[int]):
         self.mixed_precision_cfg = mp_cfg
 
-    def update_weights_error(self, node_name, error):
-        self.weights_errors[node_name] = error
+    # def update_weights_error(self, node_name, error):
+    #     self.weights_errors[node_name] = error
 

@@ -54,9 +54,9 @@ def quantize_graph_weights(graph_to_quantize: Graph,
                 f'{str(n.final_weights_quantization_cfg.weights_quantization_params)}')
 
             # compute MSE error for testing
-            tensor_data = n.get_weights_by_keys(fw_impl.constants.KERNEL)  # for computing MSE later
-            mse_score = compute_mse(tensor_data, quantized_kernel)
-            graph.user_info.update_weights_error(n.name, mse_score)
+            # tensor_data = n.get_weights_by_keys(fw_impl.constants.KERNEL)  # for computing MSE later
+            # mse_score = compute_mse(tensor_data, quantized_kernel)
+            # graph.user_info.update_weights_error(n.name, mse_score)
 
             # Set the kernel node to be the quantized kernel.
             n.set_weights_by_keys(fw_impl.constants.KERNEL, quantized_kernel)

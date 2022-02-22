@@ -92,7 +92,8 @@ def symmetric_selection_tensor(tensor_data: np.ndarray,
                                                                              range_max=threshold,
                                                                              n_bits=n_bits),
                                     x0=init_threshold,
-                                    bounds=get_threshold_bounds(min_threshold, init_threshold))
+                                    bounds=get_threshold_bounds(min_threshold, init_threshold),
+                                    method='Nelder-Mead')
             # returned 'x' here is the optimized threshold value
             res = res.x
     else:
@@ -107,7 +108,10 @@ def symmetric_selection_tensor(tensor_data: np.ndarray,
                                                                                              quant_function=lambda threshold:
                                                                                              quantize_tensor(_x, threshold, n_bits, signed),
                                                                                              bounds=bounds),
-                                                                 min_threshold=min_threshold)
+                                                                 min_threshold=min_threshold,
+                                                                 n_bits=n_bits, signed=signed)
+            print(res[1], res[2])  # print CN, RN
+            res = res[0]
         else:
             init_threshold = get_init_threshold(min_threshold, tensor_max)
             res = qparams_tensor_minimization(tensor_data, init_threshold, error_function,

@@ -22,7 +22,7 @@ import numpy as np
 from model_compression_toolkit.common.constants import MIN_THRESHOLD, THRESHOLD
 from model_compression_toolkit.common.quantization.quantizers.quantizers_helpers import quantize_tensor, \
     reshape_tensor_for_per_channel_search, uniform_quantize_tensor, get_output_shape, get_range_bounds, \
-    get_threshold_bounds
+    get_threshold_bounds, calculate_delta
 from model_compression_toolkit.common.quantization.quantization_params_generation.no_clipping import \
     no_clipping_selection_tensor, no_clipping_selection_histogram
 
@@ -170,7 +170,8 @@ def qparams_tensor_minimization(x, x0, error_function, quant_function, bounds=No
         """
     return optimize.minimize(fun=lambda qparam: error_function(x, quant_function(qparam), qparam),
                              x0=x0,
-                             bounds=bounds)
+                             bounds=bounds,
+                             method='Nelder-Mead')
 
 
 def qparams_histogram_minimization(x, x0, counts, error_function, quant_function, bounds=None):
@@ -202,7 +203,8 @@ def qparams_histogram_minimization(x, x0, counts, error_function, quant_function
                                                                                counts=counts,
                                                                                min_max_range=qparam),
                              x0=x0,
-                             bounds=bounds)
+                             bounds=bounds,
+                             method='Nelder-Mead')
 
 
 def kl_symmetric_qparams_histogram_minimization(x, x0, counts, n_bits, signed, error_function, bounds):
@@ -236,7 +238,8 @@ def kl_symmetric_qparams_histogram_minimization(x, x0, counts, n_bits, signed, e
                                                                                   counts=counts,
                                                                                   min_max_range=np.array([0, threshold]) if not signed else np.array([-threshold, threshold])),
                              x0=x0,
-                             bounds=bounds)
+                             bounds=bounds,
+                             method='Nelder-Mead')
 
 
 def kl_uniform_qparams_histogram_minimization(x, x0, counts, n_bits, error_function, bounds=None):
@@ -269,7 +272,8 @@ def kl_uniform_qparams_histogram_minimization(x, x0, counts, n_bits, error_funct
                                                                                   counts=counts,
                                                                                   min_max_range=min_max_range),
                              x0=x0,
-                             bounds=bounds)
+                             bounds=bounds,
+                             method='Nelder-Mead')
 
 
 def qparams_selection_histogram_search_error_function(error_function: Callable,
@@ -325,7 +329,8 @@ def kl_qparams_selection_histogram_search_error_function(error_function: Callabl
     return error
 
 
-def symmetric_qparams_selection_per_channel_search(tensor_data, tensor_max, channel_axis, search_function, min_threshold):
+def symmetric_qparams_selection_per_channel_search(tensor_data, tensor_max, channel_axis, search_function, min_threshold,
+                                                   n_bits=None, signed=None):
     """
     A wrapper function for running a search for optimal threshold per-channel of a tensor,
     to be used in symmetric quantization.
@@ -343,6 +348,8 @@ def symmetric_qparams_selection_per_channel_search(tensor_data, tensor_max, chan
     tensor_data_r = reshape_tensor_for_per_channel_search(tensor_data, channel_axis)
     output_shape = get_output_shape(tensor_data.shape, channel_axis)
     res = []
+    CN = []
+    RN = []
 
     for j in range(tensor_data_r.shape[0]):  # iterate all channels of the tensor.
         channel_data = tensor_data_r[j, :]
@@ -351,10 +358,18 @@ def symmetric_qparams_selection_per_channel_search(tensor_data, tensor_max, chan
         bounds = get_threshold_bounds(min_threshold, channel_threshold)
         channel_res = search_function(channel_data, channel_threshold, bounds)
         res.append(channel_res.x)
-    return np.reshape(np.array(res), output_shape)
+
+        CN_j = get_channel_clipping_noise(channel_data, n_bits, signed, threshold=channel_res.x)
+        RN_j = get_channel_rounding_noise(channel_data, n_bits, signed, threshold=channel_res.x)
+        delta_j = calculate_delta(channel_res.x, n_bits, signed)[0]
+        CN.append(np.sqrt(CN_j) / delta_j)
+        RN.append(np.sqrt(RN_j) / delta_j)
+
+    return np.reshape(np.array(res), output_shape), np.nansum(CN) / tensor_data_r.shape[0], np.nansum(RN) / tensor_data_r.shape[0]
 
 
-def uniform_qparams_selection_per_channel_search(tensor_data, tensor_min, tensor_max, channel_axis, search_function):
+def uniform_qparams_selection_per_channel_search(tensor_data, tensor_min, tensor_max, channel_axis, search_function,
+                                                   n_bits=None, signed=None):
     """
     A wrapper function for running a search for optimal range per channel of a tensor,
     to be used in uniform quantization.
@@ -372,6 +387,8 @@ def uniform_qparams_selection_per_channel_search(tensor_data, tensor_min, tensor
     tensor_data_r = reshape_tensor_for_per_channel_search(tensor_data, channel_axis)
     output_shape = get_output_shape(tensor_data.shape, channel_axis)
     res_min, res_max = [], []
+    CN = []
+    RN = []
 
     for j in range(tensor_data_r.shape[0]):  # iterate all channels of the tensor.
         channel_data = tensor_data_r[j, :]
@@ -385,6 +402,52 @@ def uniform_qparams_selection_per_channel_search(tensor_data, tensor_min, tensor
         res_min.append(channel_res.x[0])
         res_max.append(channel_res.x[1])
 
+        CN_j = get_channel_clipping_noise(channel_data, n_bits, a=channel_res.x[0], b=channel_res.x[1])
+        RN_j = get_channel_rounding_noise(channel_data, n_bits, a=channel_res.x[0], b=channel_res.x[1])
+        delta_j = ((channel_res.x[1] - channel_res.x[0]) / (2 ** n_bits - 1))
+        CN.append(np.sqrt(CN_j) / delta_j)
+        RN.append(np.sqrt(RN_j) / delta_j)
+
     res_min = np.reshape(np.array(res_min), output_shape)
     res_max = np.reshape(np.array(res_max), output_shape)
-    return res_min, res_max
+    return res_min, res_max, np.nansum(CN) / tensor_data_r.shape[0], np.nansum(RN) / tensor_data_r.shape[0]
+
+
+def get_channel_clipping_noise(channel_data, n_bits, signed=None, threshold=None, a=None, b=None):
+    if threshold:
+        delta = calculate_delta(threshold,
+                                n_bits,
+                                signed)
+
+        a = -threshold * int(signed)
+        b = threshold - delta
+
+    q_channel = uniform_quantize_tensor(channel_data,
+                                        range_min=a,
+                                        range_max=b,
+                                        n_bits=n_bits)
+
+    cond_idxs = np.where((channel_data < a) | (channel_data > b))[0]
+    origin_data = channel_data[cond_idxs]
+    q_data = q_channel[cond_idxs]
+    return np.power(origin_data - q_data, 2.0).mean()
+
+
+def get_channel_rounding_noise(channel_data, n_bits, signed=None, threshold=None, a=None, b=None):
+    if threshold:
+        delta = calculate_delta(threshold,
+                                n_bits,
+                                signed)
+
+        a = -threshold * int(signed)
+        b = threshold - delta
+
+    q_channel = uniform_quantize_tensor(channel_data,
+                                        range_min=a,
+                                        range_max=b,
+                                        n_bits=n_bits)
+
+    cond_idxs = np.where((channel_data > a) & (channel_data < b))[0]
+    origin_data = channel_data[cond_idxs]
+    q_data = q_channel[cond_idxs]
+    return np.power(origin_data - q_data, 2.0).mean()
