@@ -395,6 +395,10 @@ def get_channel_clipping_noise(channel_data, q_channel, a, b):
     cond_idxs = np.where((channel_data < a) | (channel_data > b))[0]
     origin_data = channel_data[cond_idxs]
     q_data = q_channel[cond_idxs]
+
+    if len(cond_idxs) == 0:
+        return 0
+
     return np.power(origin_data - q_data, 2.0).mean()
 
 
@@ -402,12 +406,15 @@ def get_channel_rounding_noise(channel_data, q_channel, a, b):
     cond_idxs = np.where((channel_data > a) & (channel_data < b))[0]
     origin_data = channel_data[cond_idxs]
     q_data = q_channel[cond_idxs]
+
+    if len(cond_idxs) == 0:
+        return 0
     return np.power(origin_data - q_data, 2.0).mean()
 
 
 def compute_weighted_mse(float_tensor, fxp_tensor, a, b, cn_w, rn_w) -> float:
     CN = get_channel_rounding_noise(float_tensor, fxp_tensor, a, b)
-    RN = get_channel_rounding_noise(float_tensor, fxp_tensor, a, b)
+    RN = get_channel_clipping_noise(float_tensor, fxp_tensor, a, b)
     return cn_w * CN + rn_w * RN
 
 
