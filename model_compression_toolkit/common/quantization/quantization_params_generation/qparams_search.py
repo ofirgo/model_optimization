@@ -22,7 +22,7 @@ import numpy as np
 from model_compression_toolkit.common.constants import MIN_THRESHOLD, THRESHOLD
 from model_compression_toolkit.common.quantization.quantizers.quantizers_helpers import quantize_tensor, \
     reshape_tensor_for_per_channel_search, uniform_quantize_tensor, get_output_shape, get_range_bounds, \
-    get_threshold_bounds, calculate_delta
+    get_threshold_bounds, calculate_delta, fix_range_to_include_zero
 from model_compression_toolkit.common.quantization.quantization_params_generation.no_clipping import \
     no_clipping_selection_tensor, no_clipping_selection_histogram
 
@@ -359,9 +359,9 @@ def symmetric_qparams_selection_per_channel_search(tensor_data, tensor_max, chan
         channel_res = search_function(channel_data, channel_threshold, bounds)
         res.append(channel_res.x)
 
-        CN_j = get_channel_clipping_noise(channel_data, n_bits, signed, threshold=channel_res.x)
+        CN_j, delta_j = get_channel_clipping_noise(channel_data, n_bits, signed, threshold=channel_res.x)
         RN_j = get_channel_rounding_noise(channel_data, n_bits, signed, threshold=channel_res.x)
-        delta_j = calculate_delta(channel_res.x, n_bits, signed)[0]
+        # delta_j = calculate_delta(channel_res.x, n_bits, signed)[0]
         CN.append(np.sqrt(CN_j) / delta_j)
         RN.append(np.sqrt(RN_j) / delta_j)
 
@@ -402,9 +402,9 @@ def uniform_qparams_selection_per_channel_search(tensor_data, tensor_min, tensor
         res_min.append(channel_res.x[0])
         res_max.append(channel_res.x[1])
 
-        CN_j = get_channel_clipping_noise(channel_data, n_bits, a=channel_res.x[0], b=channel_res.x[1])
+        CN_j, delta_j = get_channel_clipping_noise(channel_data, n_bits, a=channel_res.x[0], b=channel_res.x[1])
         RN_j = get_channel_rounding_noise(channel_data, n_bits, a=channel_res.x[0], b=channel_res.x[1])
-        delta_j = ((channel_res.x[1] - channel_res.x[0]) / (2 ** n_bits - 1))
+        # delta_j = ((channel_res.x[1] - channel_res.x[0]) / (2 ** n_bits - 1))
         CN.append(np.sqrt(CN_j) / delta_j)
         RN.append(np.sqrt(RN_j) / delta_j)
 
@@ -427,10 +427,12 @@ def get_channel_clipping_noise(channel_data, n_bits, signed=None, threshold=None
                                         range_max=b,
                                         n_bits=n_bits)
 
+    a, b = fix_range_to_include_zero(a, b, n_bits, per_channel=False, channel_axis=1)  # channel axes is dummy
+    delta = (b - a) / (2 ** n_bits - 1)
     cond_idxs = np.where((channel_data < a) | (channel_data > b))[0]
     origin_data = channel_data[cond_idxs]
     q_data = q_channel[cond_idxs]
-    return np.power(origin_data - q_data, 2.0).mean()
+    return np.power(origin_data - q_data, 2.0).mean(), delta
 
 
 def get_channel_rounding_noise(channel_data, n_bits, signed=None, threshold=None, a=None, b=None):
@@ -447,6 +449,7 @@ def get_channel_rounding_noise(channel_data, n_bits, signed=None, threshold=None
                                         range_max=b,
                                         n_bits=n_bits)
 
+    a, b = fix_range_to_include_zero(a, b, n_bits, per_channel=False, channel_axis=1)  # channel axes is dummy
     cond_idxs = np.where((channel_data > a) & (channel_data < b))[0]
     origin_data = channel_data[cond_idxs]
     q_data = q_channel[cond_idxs]
