@@ -29,7 +29,7 @@ from model_compression_toolkit.common.quantization.quantization_params_generatio
     _mse_error_histogram
 from model_compression_toolkit.common.quantization.quantization_params_generation.qparams_search import \
     qparams_histogram_minimization, kl_uniform_qparams_histogram_minimization, \
-    uniform_qparams_selection_per_channel_search, qparams_tensor_minimization
+    uniform_qparams_selection_per_channel_search, qparams_tensor_minimization, compute_weighted_mse
 from model_compression_toolkit.common.quantization.quantizers.quantizers_helpers import get_tensor_max, \
     get_tensor_min, uniform_quantize_tensor, get_range_bounds
 
@@ -94,8 +94,8 @@ def uniform_selection_tensor(tensor_data: np.ndarray,
             res = res.x[0], res.x[1]
     else:
         # using error_function wrapper to be able to except range as third parameter for invalid range validation
-        _error_function = get_range_selection_tensor_error_function(quant_error_method, p, norm=False)
-        error_function = lambda _x, _y, _r: np.inf if _r[1] <= _r[0] else _error_function(_x, _y)
+        _error_function = get_range_selection_tensor_error_function(quant_error_method, p)
+        error_function = lambda _x, _y, _r: np.inf if _r[1] <= _r[0] else _error_function(_x, _y, _r[0], _r[1])
         if per_channel:
             # Using search per-channel wrapper for minimization
             res = uniform_qparams_selection_per_channel_search(tensor_data, tensor_min, tensor_max, channel_axis,
@@ -231,8 +231,9 @@ def get_range_selection_tensor_error_function(quant_error_method: qc.Quantizatio
     Returns: a Callable method that calculates the error between a tensor and a quantized tensor.
 
     """
+    cn_w, rn_w = 0.2, 0.8
     quant_method_error_function_mapping = {
-        qc.QuantizationErrorMethod.MSE: lambda x, y: compute_mse(x, y, norm=norm),
+        qc.QuantizationErrorMethod.MSE: lambda x, y, a, b: compute_weighted_mse(x, y, a, b, cn_w, rn_w),
         qc.QuantizationErrorMethod.MAE: lambda x, y: compute_mae(x, y, norm=norm),
         qc.QuantizationErrorMethod.LP: lambda x, y: compute_lp_norm(x, y, p=p, norm=norm),
     }

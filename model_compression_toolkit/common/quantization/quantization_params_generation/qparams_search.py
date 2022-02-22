@@ -22,7 +22,7 @@ import numpy as np
 from model_compression_toolkit.common.constants import MIN_THRESHOLD, THRESHOLD
 from model_compression_toolkit.common.quantization.quantizers.quantizers_helpers import quantize_tensor, \
     reshape_tensor_for_per_channel_search, uniform_quantize_tensor, get_output_shape, get_range_bounds, \
-    get_threshold_bounds
+    get_threshold_bounds, calculate_delta
 from model_compression_toolkit.common.quantization.quantization_params_generation.no_clipping import \
     no_clipping_selection_tensor, no_clipping_selection_histogram
 
@@ -170,7 +170,8 @@ def qparams_tensor_minimization(x, x0, error_function, quant_function, bounds=No
         """
     return optimize.minimize(fun=lambda qparam: error_function(x, quant_function(qparam), qparam),
                              x0=x0,
-                             bounds=bounds)
+                             bounds=bounds,
+                             method='Nelder-Mead')
 
 
 def qparams_histogram_minimization(x, x0, counts, error_function, quant_function, bounds=None):
@@ -388,3 +389,39 @@ def uniform_qparams_selection_per_channel_search(tensor_data, tensor_min, tensor
     res_min = np.reshape(np.array(res_min), output_shape)
     res_max = np.reshape(np.array(res_max), output_shape)
     return res_min, res_max
+
+
+def get_channel_clipping_noise(channel_data, q_channel, a, b):
+    cond_idxs = np.where((channel_data < a) | (channel_data > b))[0]
+    origin_data = channel_data[cond_idxs]
+    q_data = q_channel[cond_idxs]
+    return np.power(origin_data - q_data, 2.0).mean()
+
+
+def get_channel_rounding_noise(channel_data, q_channel, a, b):
+    cond_idxs = np.where((channel_data > a) & (channel_data < b))[0]
+    origin_data = channel_data[cond_idxs]
+    q_data = q_channel[cond_idxs]
+    return np.power(origin_data - q_data, 2.0).mean()
+
+
+def compute_weighted_mse(float_tensor, fxp_tensor, a, b, cn_w, rn_w) -> float:
+    CN = get_channel_rounding_noise(float_tensor, fxp_tensor, a, b)
+    RN = get_channel_rounding_noise(float_tensor, fxp_tensor, a, b)
+    return cn_w * CN + rn_w * RN
+
+
+def get_min_max_for_weighted_mse(threshold, n_bits, signed):
+    delta = calculate_delta(threshold,
+                            n_bits,
+                            signed)
+
+    a = -threshold * int(signed)
+    b = threshold - delta
+    return a, b
+
+
+def weighted_mse(x, y, threshold, n_bits, signed):
+    cn_w, rn_w = 0.2, 0.8
+    a, b = get_min_max_for_weighted_mse(threshold, n_bits, signed)
+    return compute_weighted_mse(x, y, a, b, cn_w, rn_w)

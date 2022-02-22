@@ -29,9 +29,9 @@ from model_compression_toolkit.common.quantization.quantization_params_generatio
     _mse_error_histogram
 from model_compression_toolkit.common.quantization.quantization_params_generation.qparams_search import \
     qparams_histogram_minimization, kl_symmetric_qparams_histogram_minimization, \
-    symmetric_qparams_selection_per_channel_search, qparams_tensor_minimization
+    symmetric_qparams_selection_per_channel_search, qparams_tensor_minimization, compute_weighted_mse, weighted_mse
 from model_compression_toolkit.common.quantization.quantizers.quantizers_helpers import \
-    get_tensor_max, quantize_tensor, get_threshold_bounds
+    get_tensor_max, quantize_tensor, get_threshold_bounds, calculate_delta
 
 from model_compression_toolkit.common.similarity_analyzer import compute_mse, compute_mae, compute_lp_norm
 
@@ -96,7 +96,7 @@ def symmetric_selection_tensor(tensor_data: np.ndarray,
             # returned 'x' here is the optimized threshold value
             res = res.x
     else:
-        error_function = get_threshold_selection_tensor_error_function(quant_error_method, p, norm=False)
+        error_function = get_threshold_selection_tensor_error_function(quant_error_method, p, n_bits=n_bits, signed=signed)
         if per_channel:
             # Using search per-channel wrapper for minimization
             res = symmetric_qparams_selection_per_channel_search(tensor_data, tensor_max, channel_axis,
@@ -218,7 +218,9 @@ def symmetric_no_clipping_selection_min_max(bins: np.ndarray,
 
 def get_threshold_selection_tensor_error_function(quant_error_method: qc.QuantizationErrorMethod,
                                                   p: int,
-                                                  norm: bool = False) -> Callable:
+                                                  norm: bool = False,
+                                                  n_bits=8,
+                                                  signed=True) -> Callable:
     """
     Returns the error function compatible to the provided threshold method,
     to be used in the threshold optimization search for tensor quantization.
@@ -230,7 +232,7 @@ def get_threshold_selection_tensor_error_function(quant_error_method: qc.Quantiz
     Returns: a Callable method that calculates the error between a tensor and a quantized tensor.
     """
     quant_method_error_function_mapping = {
-        qc.QuantizationErrorMethod.MSE: lambda x, y, t: compute_mse(x, y, norm=norm),
+        qc.QuantizationErrorMethod.MSE: lambda x, y, t: weighted_mse(x, y, t, n_bits, signed),
         qc.QuantizationErrorMethod.MAE: lambda x, y, t: compute_mae(x, y, norm=norm),
         qc.QuantizationErrorMethod.LP: lambda x, y, t: compute_lp_norm(x, y, p=p, norm=norm),
     }
