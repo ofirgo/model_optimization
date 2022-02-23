@@ -171,8 +171,7 @@ def qparams_tensor_minimization(x, x0, error_function, quant_function, bounds=No
     return optimize.minimize(fun=lambda qparam: error_function(x, quant_function(qparam), qparam),
                              x0=x0,
                              bounds=bounds,
-                             method='Nelder-Mead',
-                             tol=1e-8)
+                             method='Nelder-Mead')
 
 
 def qparams_histogram_minimization(x, x0, counts, error_function, quant_function, bounds=None):
@@ -395,6 +394,7 @@ def uniform_qparams_selection_per_channel_search(tensor_data, tensor_min, tensor
         channel_data = tensor_data_r[j, :]
         channel_range_min = tensor_min.flatten()[j]
         channel_range_max = tensor_max.flatten()[j]
+        # channel_range_min = -channel_range_max
         channel_min_max = np.array([channel_range_min, channel_range_max])
 
         bounds = get_range_bounds(channel_range_min, channel_range_max)
