@@ -171,7 +171,8 @@ def qparams_tensor_minimization(x, x0, error_function, quant_function, bounds=No
     return optimize.minimize(fun=lambda qparam: error_function(x, quant_function(qparam), qparam),
                              x0=x0,
                              bounds=bounds,
-                             method='Nelder-Mead')
+                             method='Nelder-Mead',
+                             tol=1e-8)
 
 
 def qparams_histogram_minimization(x, x0, counts, error_function, quant_function, bounds=None):
@@ -417,10 +418,10 @@ def get_channel_clipping_noise(channel_data, n_bits, signed=None, threshold=None
     if threshold:
         delta = calculate_delta(threshold,
                                 n_bits,
-                                signed)
+                                signed)[0]
 
-        a = -threshold * int(signed)
-        b = threshold - delta
+        a = -threshold[0] * int(signed)
+        b = threshold[0] - delta
 
     q_channel = uniform_quantize_tensor(channel_data,
                                         range_min=a,
@@ -439,7 +440,7 @@ def get_channel_rounding_noise(channel_data, n_bits, signed=None, threshold=None
     if threshold:
         delta = calculate_delta(threshold,
                                 n_bits,
-                                signed)
+                                signed)[0]
 
         a = -threshold * int(signed)
         b = threshold - delta
