@@ -29,7 +29,8 @@ class MixedPrecisionQuantizationConfig(QuantizationConfig):
                  compute_distance_fn: Callable = compute_mse,
                  distance_weighting_method: Callable = get_average_weights,
                  num_of_images: int = 32,
-                 configuration_overwrite: List[int] = None):
+                 configuration_overwrite: List[int] = None,
+                 lut_nbits: List[int] = None):
         """
         Class to wrap all different parameters the library quantize the input model according to.
         Unlike QuantizationConfig, number of bits for quantization is a list of possible bit widths to
@@ -42,6 +43,7 @@ class MixedPrecisionQuantizationConfig(QuantizationConfig):
             distance_weighting_method (Callable): Function to use when weighting the distances among different layers when computing the sensitivity metric.
             num_of_images (int): Number of images to use to evaluate the sensitivity of a mixed-precision model comparing to the float model.
             configuration_overwrite (List[int]): A list of integers that enables overwrite of mixed precision with a predefined one.
+            lut_nbits (List[int]): A list of number of bits that will use LUT quantizer for layers qquantization that are quantized with the same number of bits.
 
         """
 
@@ -51,6 +53,7 @@ class MixedPrecisionQuantizationConfig(QuantizationConfig):
         self.distance_weighting_method = distance_weighting_method
         self.num_of_images = num_of_images
         self.configuration_overwrite = configuration_overwrite
+        self.lut_nbits = lut_nbits
 
 
 # Default quantization configuration the library use.

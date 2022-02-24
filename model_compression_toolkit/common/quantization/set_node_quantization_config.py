@@ -160,6 +160,8 @@ def _create_node_candidates_weights_qc(qc: QuantizationConfig,
         for nbits in qc.weights_n_bits:
             single_nbits_qc = copy.deepcopy(qc)
             single_nbits_qc.weights_n_bits = nbits
+            if qc.lut_nbits and nbits in qc.lut_nbits:
+                single_nbits_qc.weights_quantization_method = QuantizationMethod.LUT_QUANTIZER
             candidats.append(create_node_weights_qc(single_nbits_qc, fw_info, weight_channel_axis))
     else:
         candidats.append(create_node_weights_qc(qc, fw_info, weight_channel_axis))
