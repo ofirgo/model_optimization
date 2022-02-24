@@ -19,6 +19,8 @@ import unittest
 from model_compression_toolkit import QuantizationErrorMethod
 from tests.keras_tests.feature_networks_tests.feature_networks.activation_scaling_relu6_test import \
     ActivationScalingReLU6Test
+from tests.keras_tests.feature_networks_tests.feature_networks.mixed_percision_lut_quantizer_test import \
+    MixedPercisionWithLUTQuantizer2BitTest
 
 from tests.keras_tests.feature_networks_tests.feature_networks.mixed_percision_test import MixedPercisionBaseTest, \
     MixedPercisionSearchTest, MixedPercisionManuallyConfiguredTest, MixedPercisionDepthwiseTest, \
@@ -104,6 +106,9 @@ class FeatureNetworkTest(unittest.TestCase):
 
     def test_mixed_precision_dw(self):
         MixedPercisionDepthwiseTest(self).run_test()
+
+    def test_mixed_precision_lut_quantizer(self):
+        MixedPercisionWithLUTQuantizer2BitTest(self).run_test()
 
     def test_name_filter(self):
         NameFilterTest(self).run_test()

@@ -58,8 +58,8 @@ class SelectiveQuantizer(Quantizer):
         # Use the node's quantizer. The SelectiveQuantizer is supported only if
         # all node's qc candidates use the same quantizer.
         quantizer_fn = self.node_weights_q_cfg[0].weights_quantization_fn
-        for qc in self.node_weights_q_cfg:
-            assert qc.weights_quantization_fn == quantizer_fn
+        # for qc in self.node_weights_q_cfg:
+        #     assert qc.weights_quantization_fn == quantizer_fn
 
         self.quantizer_fn = quantizer_fn
         self.float_weight = float_weight
@@ -78,12 +78,18 @@ class SelectiveQuantizer(Quantizer):
             Quantized weight.
         """
         qc = self.node_weights_q_cfg[index]
-        return self.quantizer_fn(self.float_weight,
-                                 qc.weights_n_bits,
-                                 True,
-                                 qc.weights_quantization_params,
-                                 qc.weights_per_channel_threshold,
-                                 qc.weights_channels_axis)
+        # return self.quantizer_fn(self.float_weight,
+        #                          qc.weights_n_bits,
+        #                          True,
+        #                          qc.weights_quantization_params,
+        #                          qc.weights_per_channel_threshold,
+        #                          qc.weights_channels_axis)
+        return qc.weights_quantization_fn(self.float_weight,
+                                          qc.weights_n_bits,
+                                          True,
+                                          qc.weights_quantization_params,
+                                          qc.weights_per_channel_threshold,
+                                          qc.weights_channels_axis)
 
     def _store_quantized_weights(self):
         """
