@@ -24,7 +24,7 @@ from model_compression_toolkit.common.mixed_precision.mixed_precision_quantizati
     MixedPrecisionQuantizationConfig
 from model_compression_toolkit.common.quantization.node_quantization_config import NodeActivationQuantizationConfig, \
     NodeWeightsQuantizationConfig
-from model_compression_toolkit.common.quantization.quantization_config import QuantizationConfig
+from model_compression_toolkit.common.quantization.quantization_config import QuantizationConfig, QuantizationMethod
 from model_compression_toolkit.common.quantization.quantization_params_fn_selection import \
     get_activation_quantization_params_fn, get_weights_quantization_params_fn
 
