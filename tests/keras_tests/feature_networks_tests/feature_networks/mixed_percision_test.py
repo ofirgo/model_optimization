@@ -176,3 +176,21 @@ class MixedPercisionDepthwiseTest(MixedPercisionBaseTest):
                                     activation_channel_equalization=False)
 
         return MixedPrecisionQuantizationConfig(qc, weights_n_bits=[2, 8, 4, 16])
+
+
+class MixedPercisionMCKPSearchKPI4BitsAvgTest(MixedPercisionBaseTest):
+    def __init__(self, unit_test):
+        super().__init__(unit_test)
+
+    def get_kpi(self):
+        # kpi is for 4 bits on average
+        return KPI(2544140 * 4 / 8)
+
+    def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
+        assert (quantization_info.mixed_precision_cfg == [1, 1]).all()
+        for i in range(30):  # quantized per channel
+            self.unit_test.assertTrue(
+                np.unique(quantized_model.layers[2].weights[0][:, :, :, i]).flatten().shape[0] <= 16)
+        for i in range(50):  # quantized per channel
+            self.unit_test.assertTrue(
+                np.unique(quantized_model.layers[4].weights[0][:, :, :, i]).flatten().shape[0] <= 16)
