@@ -73,14 +73,14 @@ def mp_dynamic_programming_mckp_search(layer_to_bitwidth_mapping: Dict[int, List
                for node_idx, nodes_kpi_weights in layer_to_kpi_mapping.items()]
 
     # initialization of dynamic array and first level
-    min_config = get_minimal_size_configuration(layer_to_bitwidth_mapping)
-    last = np.full((capacity + 1), {"value": -np.inf, "conf": min_config})  # TODO: value needs to be metric value of min_conf?
+    min_config = _get_minimal_size_configuration(layer_to_bitwidth_mapping)
+    min_config_value = sum([values[layer_idx][min_config[layer_idx]] for layer_idx, _ in layer_to_bitwidth_mapping.items()])
+    last = np.full((capacity + 1), {"value": min_config_value, "conf": min_config})  # TODO: value needs to be metric value of min_conf?
     for i in range(len(weights[0])):
-        if weights[0][i] < capacity:
-            prev = last[int(weights[0][i])]
-            prev_value = prev["value"]
-            prev_conf = prev["conf"]
-            new_elem = prev if prev_value >= values[0][i] else {"value": values[0][i], "conf": [i] + prev_conf[1:]}
+        if weights[0][i] <= capacity:
+            prev_capacity_idx = int(weights[0][i])
+            prev_best_for_capacity = last[prev_capacity_idx]
+            new_elem = _get_updated_config(prev_best_for_capacity, values[0], 0, i)
             last[int(weights[0][i])] = new_elem
 
     # updating table
@@ -88,7 +88,7 @@ def mp_dynamic_programming_mckp_search(layer_to_bitwidth_mapping: Dict[int, List
     for i in range(1, len(weights)):
         # for each class of items (layer)
         # current.fill(-np.inf)
-        current = np.full((capacity + 1), {"value": -np.inf, "conf": min_config}) # TODO: value needs to be metric value of min_conf?
+        current = np.full((capacity + 1), {"value": min_config_value, "conf": min_config}) # TODO: value needs to be metric value of min_conf?
         for j in range(len(weights[i])):
             # for each item in the class (bitwidth)
             for k in range(int(weights[i][j]), capacity + 1):
@@ -98,15 +98,14 @@ def mp_dynamic_programming_mckp_search(layer_to_bitwidth_mapping: Dict[int, List
                 # TODO: maybe because our info on the problem we can skip unnecessary steps here,
                 #  like stop after we exceed some capacity.
                 #  requires to better understand the solution
-                if last[(k - int(weights[i][j]))]["value"] != -np.inf:
+                if last[(k - int(weights[i][j]))]["value"] > min_config_value:
                     # i is the layer that we currently work on
                     # j is the index of the bitwidth for the layer
                     # k is the current upper bound on the total size of the reduced model
-                    prev = current[k]
-                    prev_value = prev["value"]
-                    prev_conf = prev["conf"]
-                    new_val = last[k - int(weights[i][j])]["value"] + values[i][j]
-                    new_elem = prev if prev_value >= new_val else {"value": new_val, "conf": prev_conf[:i] + [j] + prev_conf[i+1:]}
+                    new_elem = _get_updated_config(prev_best_for_capacity=last[(k - int(weights[i][j]))],
+                                                  layer_values=values[i],
+                                                  layer_idx=i,
+                                                  bitwidth_idx=j)
                     current[k] = new_elem
 
         # temp = current
@@ -114,111 +113,14 @@ def mp_dynamic_programming_mckp_search(layer_to_bitwidth_mapping: Dict[int, List
         # last = temp
         last = current
 
-    # print(np.max(last), np.argmax(last))
-    max_res = max(last, key=itemgetter('value'))
+    # get best results with tie-breaker by higher precision (larger total weight)
+    max_value = max(last, key=itemgetter('value'))['value']
+    all_max_res = [res for res in last if res['value'] == max_value]
+    max_res = max(all_max_res, key=lambda res: compute_kpi_fn(res['conf']).weights_memory)
+    # max_res = max(last, key=itemgetter('value'))
     print(max_res["value"], max_res["conf"])
+    # print(list(filter(lambda d: d['value'] != min_config_value, last)))
     return np.asarray(max_res["conf"])
-
-    # lp_problem.solve()  # Try to solve the problem.
-    # assert lp_problem.status == LpStatusOptimal, Logger.critical(
-    #     "No solution was found during solving the LP problem")
-    # Logger.info(LpStatus[lp_problem.status])
-
-    # Take the bitwidth index only if its corresponding indicator is one.
-    # config = np.asarray(
-    #     [[nbits for nbits, indicator in nbits_to_indicator.items() if indicator.varValue == 1.0] for
-    #      nbits_to_indicator
-    #      in layer_to_indicator_vars_mapping.values()]
-    # ).flatten()
-
-    # return config
-
-
-def _init_problem_vars(layer_to_metrics_mapping: Dict[int, Dict[int, float]]) -> Tuple[
-    Dict[int, Dict[int, LpVariable]], Dict[int, LpVariable]]:
-    """
-    Initialize the LP problem variables: Variable for each layer as to the index of the bitwidth it should use,
-    and a variable for each indicator for whether we use the former variable or not.
-
-    Args:
-        layer_to_metrics_mapping: Mapping from each layer's index (in the model) to a dictionary that maps the
-        bitwidth index to the observed sensitivity of the model.
-
-    Returns:
-        A tuple of two dictionaries: One from a layer to the variable for the bitwidth problem,
-        and the second for indicators for each variable.
-    """
-
-    layer_to_indicator_vars_mapping = dict()
-    layer_to_objective_vars_mapping = dict()
-
-    for layer, nbits_to_metric in layer_to_metrics_mapping.items():
-        layer_to_indicator_vars_mapping[layer] = dict()
-
-        for nbits in nbits_to_metric.keys():
-            layer_to_indicator_vars_mapping[layer][nbits] = LpVariable(f"layer_{layer}_{nbits}",
-                                                                       lowBound=0,
-                                                                       upBound=1,
-                                                                       cat=LpInteger)
-
-        layer_to_objective_vars_mapping[layer] = LpVariable(f"s_{layer}", 0)
-
-    return layer_to_indicator_vars_mapping, layer_to_objective_vars_mapping
-
-
-def _formalize_problem(layer_to_indicator_vars_mapping: Dict[int, Dict[int, LpVariable]],
-                       layer_to_metrics_mapping: Dict[int, Dict[int, float]],
-                       layer_to_objective_vars_mapping: Dict[int, LpVariable],
-                       target_kpi: KPI,
-                       layer_to_kpi_mapping: Dict[int, Dict[int, KPI]],
-                       minimal_kpi: KPI) -> LpProblem:
-    """
-    Formalize the LP problem by defining all inequalities that define the solution space.
-
-    Args:
-        layer_to_indicator_vars_mapping: Dictionary that maps each node's index to a dictionary of bitwidth to
-        indicator variable.
-        layer_to_metrics_mapping: Dictionary that maps each node's index to a dictionary of bitwidth to sensitivity
-        evaluation.
-        layer_to_objective_vars_mapping: Dictionary that maps each node's index to a bitwidth variable we find its
-        value.
-        target_kpi: KPI to reduce our feasible solution space.
-        layer_to_kpi_mapping: Dictionary that maps each node's index to a dictionary of bitwidth to the KPI
-        contribution of the node to the minimal KPI.
-        minimal_kpi: Minimal possible KPI of the graph.
-
-    Returns:
-        The formalized LP problem.
-    """
-
-    lp_problem = LpProblem()  # minimization problem by default
-    lp_problem += lpSum([layer_to_objective_vars_mapping[layer] for layer in
-                         layer_to_metrics_mapping.keys()])  # Objective (minimize acc loss)
-
-    for layer in layer_to_metrics_mapping.keys():
-        # Use every bitwidth for every layer with its indicator.
-        lp_problem += lpSum([indicator * layer_to_metrics_mapping[layer][nbits]
-                             for nbits, indicator in layer_to_indicator_vars_mapping[layer].items()]) == \
-                      layer_to_objective_vars_mapping[layer]
-
-        # Constraint of only one indicator==1
-        lp_problem += lpSum(
-            [v for v in layer_to_indicator_vars_mapping[layer].values()]) == 1
-
-    # Bound the feasible solution space with the desired KPI.
-    if target_kpi is not None and not np.isinf(target_kpi.weights_memory):
-        total_weights_consumption = []
-        for layer in layer_to_metrics_mapping.keys():
-            weights_by_indicators = [indicator * layer_to_kpi_mapping[layer][nbits].weights_memory for nbits, indicator
-                                     in layer_to_indicator_vars_mapping[layer].items()]
-            total_weights_consumption.extend(weights_by_indicators)
-
-        # Total model memory size is bounded to the given KPI.
-        # Since total_weights_consumption is the contribution to the minimal possible KPI,
-        # we bound the problem by the difference of the target KPI to the minimal KPI.
-        lp_problem += lpSum(total_weights_consumption) <= target_kpi.weights_memory - minimal_kpi.weights_memory
-
-    return lp_problem
 
 
 def _build_layer_to_metrics_mapping(node_to_bitwidth_indices: Dict[int, List[int]],
@@ -305,8 +207,27 @@ def _compute_kpis(node_to_bitwidth_indices: Dict[int, List[int]],
     return layer_to_kpi_mapping, minimal_kpi
 
 
-def get_minimal_size_configuration(node_to_bitwidth_indices):
+def _get_minimal_size_configuration(node_to_bitwidth_indices):
     # The node's candidates are sorted in a descending order, thus we take the last index of each node.
     minimal_graph_size_configuration = [node_to_bitwidth_indices[node_idx][-1] for node_idx in
                                         sorted(node_to_bitwidth_indices.keys())]
     return minimal_graph_size_configuration
+
+
+def _get_updated_config(prev_best_for_capacity, layer_values, layer_idx, bitwidth_idx):
+    prev_best_value = prev_best_for_capacity['value']
+    prev_best_cfg = prev_best_for_capacity['conf']
+    new_value = prev_best_value - layer_values[prev_best_cfg[layer_idx]] + layer_values[bitwidth_idx]
+    if prev_best_value > new_value:
+        # no update
+        return prev_best_for_capacity
+    elif prev_best_value < new_value:
+        # take new configuration (better value)
+        return {"value": new_value,
+                "conf": prev_best_cfg[:layer_idx] + [bitwidth_idx] + prev_best_cfg[layer_idx + 1:]}
+    else:
+        # values are equal, tie-breaker by maximal weight
+        prev_layer_bitwidth_idx = prev_best_cfg[layer_idx]
+        new_bitwidth_idx = min(bitwidth_idx, prev_layer_bitwidth_idx)
+        return {"value": new_value,
+                "conf": prev_best_cfg[:layer_idx] + [new_bitwidth_idx] + prev_best_cfg[layer_idx + 1:]}
