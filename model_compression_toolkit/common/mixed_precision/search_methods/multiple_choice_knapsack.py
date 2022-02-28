@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+from operator import itemgetter
 
 import numpy as np
 from pulp import *
@@ -72,16 +73,22 @@ def mp_dynamic_programming_mckp_search(layer_to_bitwidth_mapping: Dict[int, List
                for node_idx, nodes_kpi_weights in layer_to_kpi_mapping.items()]
 
     # initialization of dynamic array and first level
-    last = np.full((capacity + 1), -np.inf)
+    min_config = get_minimal_size_configuration(layer_to_bitwidth_mapping)
+    last = np.full((capacity + 1), {"value": -np.inf, "conf": min_config})  # TODO: value needs to be metric value of min_conf?
     for i in range(len(weights[0])):
         if weights[0][i] < capacity:
-            last[int(weights[0][i])] = max(last[int(weights[0][i])], values[0][i])
+            prev = last[int(weights[0][i])]
+            prev_value = prev["value"]
+            prev_conf = prev["conf"]
+            new_elem = prev if prev_value >= values[0][i] else {"value": values[0][i], "conf": [i] + prev_conf[1:]}
+            last[int(weights[0][i])] = new_elem
 
     # updating table
-    current = np.empty(capacity + 1)
+    # current = np.empty(capacity + 1)
     for i in range(1, len(weights)):
         # for each class of items (layer)
-        current.fill(-np.inf)
+        # current.fill(-np.inf)
+        current = np.full((capacity + 1), {"value": -np.inf, "conf": min_config}) # TODO: value needs to be metric value of min_conf?
         for j in range(len(weights[i])):
             # for each item in the class (bitwidth)
             for k in range(int(weights[i][j]), capacity + 1):
@@ -91,13 +98,26 @@ def mp_dynamic_programming_mckp_search(layer_to_bitwidth_mapping: Dict[int, List
                 # TODO: maybe because our info on the problem we can skip unnecessary steps here,
                 #  like stop after we exceed some capacity.
                 #  requires to better understand the solution
-                if last[k - int(weights[i][j])] != -np.inf:
-                    current[k] = max(current[k], last[k - int(weights[i][j])] + values[i][j])
-        temp = current
-        current = last
-        last = temp
+                if last[(k - int(weights[i][j]))]["value"] != -np.inf:
+                    # i is the layer that we currently work on
+                    # j is the index of the bitwidth for the layer
+                    # k is the current upper bound on the total size of the reduced model
+                    prev = current[k]
+                    prev_value = prev["value"]
+                    prev_conf = prev["conf"]
+                    new_val = last[k - int(weights[i][j])]["value"] + values[i][j]
+                    new_elem = prev if prev_value >= new_val else {"value": new_val, "conf": prev_conf[:i] + [j] + prev_conf[i+1:]}
+                    current[k] = new_elem
 
-    print(np.max(last), np.argmax(last))
+        # temp = current
+        # current = last
+        # last = temp
+        last = current
+
+    # print(np.max(last), np.argmax(last))
+    max_res = max(last, key=itemgetter('value'))
+    print(max_res["value"], max_res["conf"])
+    return np.asarray(max_res["conf"])
 
     # lp_problem.solve()  # Try to solve the problem.
     # assert lp_problem.status == LpStatusOptimal, Logger.critical(
@@ -263,9 +283,7 @@ def _compute_kpis(node_to_bitwidth_indices: Dict[int, List[int]],
     Logger.info('Starting to compute KPIs per node and bitwidth')
     layer_to_kpi_mapping = {}
 
-    # The node's candidates are sorted in a descending order, thus we take the last index of each node.
-    minimal_graph_size_configuration = [node_to_bitwidth_indices[node_idx][-1] for node_idx in
-                                        sorted(node_to_bitwidth_indices.keys())]
+    minimal_graph_size_configuration = get_minimal_size_configuration(node_to_bitwidth_indices)
 
     minimal_kpi = compute_kpi_fn(minimal_graph_size_configuration)  # minimal possible kpi
 
@@ -285,3 +303,10 @@ def _compute_kpis(node_to_bitwidth_indices: Dict[int, List[int]],
             layer_to_kpi_mapping[node_idx][bitwidth_idx] = KPI(contribution_to_minimal_model)
 
     return layer_to_kpi_mapping, minimal_kpi
+
+
+def get_minimal_size_configuration(node_to_bitwidth_indices):
+    # The node's candidates are sorted in a descending order, thus we take the last index of each node.
+    minimal_graph_size_configuration = [node_to_bitwidth_indices[node_idx][-1] for node_idx in
+                                        sorted(node_to_bitwidth_indices.keys())]
+    return minimal_graph_size_configuration

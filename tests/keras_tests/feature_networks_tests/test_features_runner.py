@@ -22,7 +22,7 @@ from tests.keras_tests.feature_networks_tests.feature_networks.activation_scalin
 
 from tests.keras_tests.feature_networks_tests.feature_networks.mixed_percision_test import MixedPercisionBaseTest, \
     MixedPercisionSearchTest, MixedPercisionManuallyConfiguredTest, MixedPercisionDepthwiseTest, \
-    MixedPercisionSearchKPI4BitsAvgTest, MixedPercisionSearchKPI2BitsAvgTest, MixedPercisionMCKPSearchKPI4BitsAvgTest
+    MixedPercisionSearchKPI4BitsAvgTest, MixedPercisionSearchKPI2BitsAvgTest, MixedPercisionSearchKPI4BitsAvgMCKPTest
 from tests.keras_tests.feature_networks_tests.feature_networks.multiple_inputs_node_tests import MultipleInputsNodeTests
 from tests.keras_tests.feature_networks_tests.feature_networks.multiple_outputs_node_tests import \
     MultipleOutputsNodeTests
@@ -100,7 +100,7 @@ class FeatureNetworkTest(unittest.TestCase):
         MixedPercisionSearchKPI4BitsAvgTest(self).run_test()
 
     def test_mixed_precision_mckp_search_kpi_4bits_avg(self):
-        MixedPercisionMCKPSearchKPI4BitsAvgTest(self).run_test()
+        MixedPercisionSearchKPI4BitsAvgMCKPTest(self).run_test()
 
     def test_mixed_precision_search(self):
         MixedPercisionSearchTest(self).run_test()

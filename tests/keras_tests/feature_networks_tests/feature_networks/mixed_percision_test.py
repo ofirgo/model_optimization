@@ -22,6 +22,7 @@ import model_compression_toolkit as mct
 from model_compression_toolkit.common.mixed_precision.kpi import KPI
 from model_compression_toolkit.common.mixed_precision.mixed_precision_quantization_config import \
     MixedPrecisionQuantizationConfig
+from model_compression_toolkit.common.mixed_precision.mixed_precision_quantization_config import BitWidthSearchMethod
 from model_compression_toolkit.common.user_info import UserInformation
 from tests.common_tests.base_feature_test import BaseFeatureNetworkTest
 from tests.common_tests.helpers.tensors_compare import cosine_similarity
@@ -178,9 +179,19 @@ class MixedPercisionDepthwiseTest(MixedPercisionBaseTest):
         return MixedPrecisionQuantizationConfig(qc, weights_n_bits=[2, 8, 4, 16])
 
 
-class MixedPercisionMCKPSearchKPI4BitsAvgTest(MixedPercisionBaseTest):
+class MixedPercisionSearchKPI4BitsAvgMCKPTest(MixedPercisionBaseTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
+
+    def get_quantization_config(self):
+        qc = mct.QuantizationConfig(mct.QuantizationErrorMethod.MSE, mct.QuantizationErrorMethod.MSE,
+                                    mct.QuantizationMethod.POWER_OF_TWO, mct.QuantizationMethod.POWER_OF_TWO,
+                                    relu_unbound_correction=True, weights_bias_correction=True,
+                                    weights_per_channel_threshold=True, input_scaling=True,
+                                    activation_channel_equalization=True)
+
+        return MixedPrecisionQuantizationConfig(qc, weights_n_bits=[2, 8, 4], num_of_images=1,
+                                                mp_search_method=BitWidthSearchMethod.MCKP)
 
     def get_kpi(self):
         # kpi is for 4 bits on average

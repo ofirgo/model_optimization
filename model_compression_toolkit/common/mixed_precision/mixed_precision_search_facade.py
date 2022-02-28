@@ -21,7 +21,7 @@ from typing import Callable, List
 from model_compression_toolkit.common import Graph, Logger
 from model_compression_toolkit.common.mixed_precision.kpi import KPI
 from model_compression_toolkit.common.mixed_precision.mixed_precision_quantization_config import \
-    MixedPrecisionQuantizationConfig
+    MixedPrecisionQuantizationConfig, BitWidthSearchMethod
 from model_compression_toolkit.common.mixed_precision.mixed_precision_search_manager import MixedPrecisionSearchManager
 from model_compression_toolkit.common.mixed_precision.search_methods.linear_programming import \
     mp_integer_programming_search
@@ -31,11 +31,6 @@ from model_compression_toolkit.common.framework_info import FrameworkInfo
 # should be updated with it's kind and a search_method implementation.
 from model_compression_toolkit.common.mixed_precision.search_methods.multiple_choice_knapsack import \
     mp_dynamic_programming_mckp_search
-
-
-class BitWidthSearchMethod(Enum):
-    INTEGER_PROGRAMMING = 0,
-    MCKP = 1
 
 
 search_methods = {
@@ -49,8 +44,7 @@ def search_bit_width(graph_to_search_cfg: Graph,
                      fw_info: FrameworkInfo,
                      target_kpi: KPI,
                      get_sensitivity_evaluation: Callable = None,
-                     # search_method: BitWidthSearchMethod = BitWidthSearchMethod.INTEGER_PROGRAMMING) -> List[int]:
-                     search_method: BitWidthSearchMethod = BitWidthSearchMethod.MCKP) -> List[int]:
+                     search_method: BitWidthSearchMethod = BitWidthSearchMethod.INTEGER_PROGRAMMING) -> List[int]:
 
     """
     Search for a MP configuration for a given graph. Given a search_method method (by default, it's linear

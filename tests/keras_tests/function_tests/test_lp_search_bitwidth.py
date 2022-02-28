@@ -19,9 +19,8 @@ from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2
 
 from model_compression_toolkit.common.mixed_precision.kpi import KPI
 from model_compression_toolkit.common.mixed_precision.mixed_precision_quantization_config import \
-    DEFAULT_MIXEDPRECISION_CONFIG
-from model_compression_toolkit.common.mixed_precision.mixed_precision_search_facade import search_bit_width, \
-    BitWidthSearchMethod
+    DEFAULT_MIXEDPRECISION_CONFIG, BitWidthSearchMethod
+from model_compression_toolkit.common.mixed_precision.mixed_precision_search_facade import search_bit_width
 from model_compression_toolkit.common.mixed_precision.search_methods.linear_programming import \
     mp_integer_programming_search
 from model_compression_toolkit.common.quantization.quantization_analyzer import analyzer_graph
