@@ -51,20 +51,20 @@ class TestMckpSearchBitwidth(unittest.TestCase):
         self.assertTrue(len(bit_cfg) == 1)
         self.assertTrue(bit_cfg[0] == 1, f"bit_cfg is {bit_cfg}, expected [1]")
 
-        # target_kpi = KPI(0)  # Infeasible solution!
-        # with self.assertRaises(Exception):
-        #     bit_cfg = mp_integer_programming_search({0: [0, 1, 2]},
-        #                                             lambda x, y: 0,
-        #                                             lambda x: layer_to_kpi_mapping[0][x[0]],
-        #                                             target_kpi)
-        #
-        # bit_cfg = mp_integer_programming_search({0: [0, 1, 2]},
-        #                                         lambda x, y: 0,
-        #                                         lambda x: layer_to_kpi_mapping[0][x[0]],
-        #                                         KPI(np.inf))
-        #
-        # self.assertTrue(len(bit_cfg) == 1)
-        # self.assertTrue(bit_cfg[0] == 2)
+        target_kpi = KPI(0)  # Infeasible solution!
+        with self.assertRaises(Exception):
+            bit_cfg = mp_dynamic_programming_mckp_search({0: [0, 1, 2]},
+                                                         lambda x, y: 0,
+                                                         lambda x: layer_to_kpi_mapping[0][x[0]],
+                                                         target_kpi)
+
+        bit_cfg = mp_dynamic_programming_mckp_search({0: [0, 1, 2]},
+                                                     lambda x, y: 0,
+                                                     lambda x: layer_to_kpi_mapping[0][x[0]],
+                                                     KPI(np.inf))
+
+        self.assertTrue(len(bit_cfg) == 1)
+        self.assertTrue(bit_cfg[0] == 0)
 
 
 class TestSearchBitwidthConfiguration(unittest.TestCase):
@@ -73,8 +73,8 @@ class TestSearchBitwidthConfiguration(unittest.TestCase):
         # qc = DEFAULT_MIXEDPRECISION_CONFIG
         import copy
         qc = copy.deepcopy(DEFAULT_MIXEDPRECISION_CONFIG)
-        qc.num_of_images=1
-        qc.weights_n_bits = [8]
+        qc.num_of_images = 1
+        # qc.weights_n_bits = [2, 4, 8]
         fw_info = DEFAULT_KERAS_INFO
         in_model = MobileNetV2()
         keras_impl = KerasImplementation()
@@ -107,9 +107,17 @@ class TestSearchBitwidthConfiguration(unittest.TestCase):
         cfg = search_bit_width(graph,
                                qc,
                                DEFAULT_KERAS_INFO,
-                               KPI(np.inf),
+                               KPI(3469760 * 4 / 8),
+                               keras_sens_eval,
+                               BitWidthSearchMethod.MCKP)
+        print(cfg)
+        cfg = search_bit_width(graph,
+                               qc,
+                               DEFAULT_KERAS_INFO,
+                               KPI(3469760 * 4 / 8),
                                keras_sens_eval,
                                BitWidthSearchMethod.INTEGER_PROGRAMMING)
+        print(cfg)
 
         with self.assertRaises(Exception):
             cfg = search_bit_width(graph,
@@ -125,7 +133,7 @@ class TestSearchBitwidthConfiguration(unittest.TestCase):
                                    DEFAULT_KERAS_INFO,
                                    None,
                                    keras_sens_eval,
-                                   BitWidthSearchMethod.INTEGER_PROGRAMMING)
+                                   BitWidthSearchMethod.MCKP)
 
 
 if __name__ == '__main__':

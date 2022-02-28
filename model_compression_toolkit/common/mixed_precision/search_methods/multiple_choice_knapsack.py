@@ -49,6 +49,8 @@ def mp_dynamic_programming_mckp_search(layer_to_bitwidth_mapping: Dict[int, List
         The mixed-precision configuration (list of indices. Each indicates the bitwidth index of a node).
 
     """
+    if np.isinf(target_kpi.weights_memory):
+        return [min(bitwidth_candidates) for _, bitwidth_candidates in layer_to_bitwidth_mapping.items()]
 
     # Build a mapping from each layer's index (in the model) to a dictionary that maps the
     # bitwidth index to the observed sensitivity of the model when using that bitwidth for that layer.
@@ -185,7 +187,7 @@ def _compute_kpis(node_to_bitwidth_indices: Dict[int, List[int]],
     Logger.info('Starting to compute KPIs per node and bitwidth')
     layer_to_kpi_mapping = {}
 
-    minimal_graph_size_configuration = get_minimal_size_configuration(node_to_bitwidth_indices)
+    minimal_graph_size_configuration = _get_minimal_size_configuration(node_to_bitwidth_indices)
 
     minimal_kpi = compute_kpi_fn(minimal_graph_size_configuration)  # minimal possible kpi
 
