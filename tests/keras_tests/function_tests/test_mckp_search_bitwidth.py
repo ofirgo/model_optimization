@@ -110,14 +110,6 @@ class TestSearchBitwidthConfiguration(unittest.TestCase):
                                KPI(3469760 * 4 / 8),
                                keras_sens_eval,
                                BitWidthSearchMethod.MCKP)
-        print(cfg)
-        cfg = search_bit_width(graph,
-                               qc,
-                               DEFAULT_KERAS_INFO,
-                               KPI(3469760 * 4 / 8),
-                               keras_sens_eval,
-                               BitWidthSearchMethod.INTEGER_PROGRAMMING)
-        print(cfg)
 
         with self.assertRaises(Exception):
             cfg = search_bit_width(graph,

@@ -69,10 +69,10 @@ def mp_dynamic_programming_mckp_search(layer_to_bitwidth_mapping: Dict[int, List
     assert minimal_kpi.weights_memory <= target_kpi.weights_memory, f'Minimal KPI cannot be greater than target KPI. Minimal KPI:{minimal_kpi}, Target KPI:{target_kpi}'
 
     capacity = int(target_kpi.weights_memory - minimal_kpi.weights_memory)
-    values = [[metric_value for _, metric_value in nodes_metrics_values.items()]
-              for node_idx, nodes_metrics_values in layer_to_metrics_mapping.items()]
-    weights = [[kpi_weight.weights_memory for _, kpi_weight in nodes_kpi_weights.items()]
-               for node_idx, nodes_kpi_weights in layer_to_kpi_mapping.items()]
+    values = np.array([np.array([metric_value for _, metric_value in nodes_metrics_values.items()])
+              for node_idx, nodes_metrics_values in layer_to_metrics_mapping.items()])
+    weights = np.array([np.array([kpi_weight.weights_memory for _, kpi_weight in nodes_kpi_weights.items()])
+               for node_idx, nodes_kpi_weights in layer_to_kpi_mapping.items()])
 
     # initialization of dynamic array and first level
     min_config = _get_minimal_size_configuration(layer_to_bitwidth_mapping)
@@ -86,10 +86,8 @@ def mp_dynamic_programming_mckp_search(layer_to_bitwidth_mapping: Dict[int, List
             last[int(weights[0][i])] = new_elem
 
     # updating table
-    # current = np.empty(capacity + 1)
     for i in range(1, len(weights)):
         # for each class of items (layer)
-        # current.fill(-np.inf)
         current = np.full((capacity + 1), {"value": min_config_value, "conf": min_config}) # TODO: value needs to be metric value of min_conf?
         for j in range(len(weights[i])):
             # for each item in the class (bitwidth)
@@ -110,18 +108,12 @@ def mp_dynamic_programming_mckp_search(layer_to_bitwidth_mapping: Dict[int, List
                                                   bitwidth_idx=j)
                     current[k] = new_elem
 
-        # temp = current
-        # current = last
-        # last = temp
         last = current
 
     # get best results with tie-breaker by higher precision (larger total weight)
     max_value = max(last, key=itemgetter('value'))['value']
     all_max_res = [res for res in last if res['value'] == max_value]
     max_res = max(all_max_res, key=lambda res: compute_kpi_fn(res['conf']).weights_memory)
-    # max_res = max(last, key=itemgetter('value'))
-    print(max_res["value"], max_res["conf"])
-    # print(list(filter(lambda d: d['value'] != min_config_value, last)))
     return np.asarray(max_res["conf"])
 
 
