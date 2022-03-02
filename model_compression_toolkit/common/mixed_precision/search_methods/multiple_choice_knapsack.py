@@ -77,18 +77,21 @@ def mp_dynamic_programming_mckp_search(layer_to_bitwidth_mapping: Dict[int, List
     # initialization of dynamic array and first level
     min_config = _get_minimal_size_configuration(layer_to_bitwidth_mapping)
     min_config_value = sum([values[layer_idx][min_config[layer_idx]] for layer_idx, _ in layer_to_bitwidth_mapping.items()])
-    last = np.full((capacity + 1), {"value": min_config_value, "conf": min_config})  # TODO: value needs to be metric value of min_conf?
+    last = np.full((capacity + 1), {"value": min_config_value, "conf": min_config})
+
+    # init first layer capacity array
     for i in range(len(weights[0])):
         if weights[0][i] <= capacity:
             prev_capacity_idx = int(weights[0][i])
             prev_best_for_capacity = last[prev_capacity_idx]
-            new_elem = _get_updated_config(prev_best_for_capacity, values[0], 0, i)
-            last[int(weights[0][i])] = new_elem
+            new_elem = prev_best_for_capacity if prev_best_for_capacity["value"] >= values[0][i] \
+                else {"value": values[0][i], "conf": [i] + prev_best_for_capacity["conf"][1:]}
+            last[prev_capacity_idx] = new_elem
 
     # updating table
     for i in range(1, len(weights)):
         # for each class of items (layer)
-        current = np.full((capacity + 1), {"value": min_config_value, "conf": min_config}) # TODO: value needs to be metric value of min_conf?
+        current = np.full((capacity + 1), {"value": min_config_value, "conf": min_config})
         for j in range(len(weights[i])):
             # for each item in the class (bitwidth)
             for k in range(int(weights[i][j]), capacity + 1):
@@ -102,10 +105,11 @@ def mp_dynamic_programming_mckp_search(layer_to_bitwidth_mapping: Dict[int, List
                     # i is the layer that we currently work on
                     # j is the index of the bitwidth for the layer
                     # k is the current upper bound on the total size of the reduced model
-                    new_elem = _get_updated_config(prev_best_for_capacity=last[(k - int(weights[i][j]))],
-                                                  layer_values=values[i],
-                                                  layer_idx=i,
-                                                  bitwidth_idx=j)
+                    new_elem = _get_updated_config(last_with_capacity=last[(k - int(weights[i][j]))],
+                                                   current=current[k],
+                                                   layer_values=values[i],
+                                                   layer_idx=i,
+                                                   bitwidth_idx=j)
                     current[k] = new_elem
 
         last = current
@@ -208,20 +212,15 @@ def _get_minimal_size_configuration(node_to_bitwidth_indices):
     return minimal_graph_size_configuration
 
 
-def _get_updated_config(prev_best_for_capacity, layer_values, layer_idx, bitwidth_idx):
-    prev_best_value = prev_best_for_capacity['value']
-    prev_best_cfg = prev_best_for_capacity['conf']
+def _get_updated_config(last_with_capacity, current, layer_values, layer_idx, bitwidth_idx):
+    # prev_best_for_capacity - is last[k - w_i_j]
+    # best_current - is current[k]
+    prev_best_value = last_with_capacity['value']
+    prev_best_cfg = last_with_capacity['conf']
     new_value = prev_best_value - layer_values[prev_best_cfg[layer_idx]] + layer_values[bitwidth_idx]
-    if prev_best_value > new_value:
-        # no update
-        return prev_best_for_capacity
-    elif prev_best_value < new_value:
-        # take new configuration (better value)
+
+    if new_value >= current['value']:
         return {"value": new_value,
                 "conf": prev_best_cfg[:layer_idx] + [bitwidth_idx] + prev_best_cfg[layer_idx + 1:]}
     else:
-        # values are equal, tie-breaker by maximal weight
-        prev_layer_bitwidth_idx = prev_best_cfg[layer_idx]
-        new_bitwidth_idx = min(bitwidth_idx, prev_layer_bitwidth_idx)
-        return {"value": new_value,
-                "conf": prev_best_cfg[:layer_idx] + [new_bitwidth_idx] + prev_best_cfg[layer_idx + 1:]}
+        return current
