@@ -139,10 +139,9 @@ def run_operation(n: BaseNode,
                 # input layer
                 out_tensors_of_n = n.final_activation_quantization_cfg.quantize_node_output(out_tensors_of_n_float)
             elif mode in [ModelBuilderMode.MIXEDPRECISION]:
-                # TODO: refactor after implementing activations mixed precision
-                assert n.is_all_activation_candidates_equal()
-                out_tensors_of_n = n.candidates_quantization_cfg[0].activation_quantization_cfg.quantize_node_output(
-                    out_tensors_of_n_float)
+                if n.is_all_activation_candidates_equal():
+                    # otherwise, we want to use the float tensor when building the model for MP search
+                    out_tensors_of_n = n.candidates_quantization_cfg[0].activation_quantization_cfg.quantize_node_output(out_tensors_of_n_float)
 
     else:
         input_tensors = [tensor for tensor_list in input_tensors for tensor in tensor_list]  # flat list of lists
@@ -165,10 +164,9 @@ def run_operation(n: BaseNode,
             if mode in [ModelBuilderMode.QUANTIZED, ModelBuilderMode.GPTQ] and n.final_activation_quantization_cfg:
                 out_tensors_of_n = n.final_activation_quantization_cfg.quantize_node_output(out_tensors_of_n_float)
             elif mode in [ModelBuilderMode.MIXEDPRECISION]:
-                # TODO: refactor after implementing activations mixed precision
-                assert n.is_all_activation_candidates_equal()
-                out_tensors_of_n = n.candidates_quantization_cfg[0].activation_quantization_cfg.quantize_node_output(
-                    out_tensors_of_n_float)
+                if n.is_all_activation_candidates_equal():
+                    # otherwise, we want to use the float tensor when building the model for MP search
+                    out_tensors_of_n = n.candidates_quantization_cfg[0].activation_quantization_cfg.quantize_node_output(out_tensors_of_n_float)
 
     return out_tensors_of_n, out_tensors_of_n_float
 
@@ -299,7 +297,7 @@ def model_builder(graph: common.Graph,
             if len(nodes) == 1:
                 node = nodes[0]
                 # Wrap only if its weights should be quantized
-                if node.is_weights_quantization_enabled():
+                if node.is_weights_quantization_enabled() or node.is_activation_quantization_enabled():
                     return QuantizeWrapper(layer, quantization_config_builder_mixed_precision(node, fw_info))
                 return layer
 

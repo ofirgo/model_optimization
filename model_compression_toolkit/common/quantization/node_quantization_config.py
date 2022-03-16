@@ -169,7 +169,6 @@ class NodeActivationQuantizationConfig(BaseNodeNodeQuantizationConfig):
 
         return self.activation_quantization_fn == other.activation_quantization_fn and \
                self.activation_quantization_params_fn == other.activation_quantization_params_fn and \
-               self.activation_quantization_params == other.activation_quantization_params and \
                self.activation_error_method == other.activation_error_method and \
                self.activation_quantization_method == other.activation_quantization_method and \
                self.activation_n_bits == other.activation_n_bits and \
@@ -183,6 +182,8 @@ class NodeActivationQuantizationConfig(BaseNodeNodeQuantizationConfig):
                self.z_threshold == other.z_threshold and \
                self.shift_negative_ratio == other.shift_negative_ratio and \
                self.shift_negative_threshold_recalculation == other.shift_negative_threshold_recalculation
+               # TODO: do we need to compare params or is it not part of configuration comparison?
+               # self.activation_quantization_params == other.activation_quantization_params and
 
 
 class NodeWeightsQuantizationConfig(BaseNodeNodeQuantizationConfig):
@@ -293,7 +294,6 @@ class NodeWeightsQuantizationConfig(BaseNodeNodeQuantizationConfig):
         return self.weights_quantization_fn == other.weights_quantization_fn and \
                self.weights_quantization_params_fn == other.weights_quantization_params_fn and \
                self.weights_channels_axis == other.weights_channels_axis and \
-               self.weights_quantization_params == other.weights_quantization_params and \
                self.weights_error_method == other.weights_error_method and \
                self.weights_quantization_method == other.weights_quantization_method and \
                self.weights_n_bits == other.weights_n_bits and \
@@ -302,3 +302,5 @@ class NodeWeightsQuantizationConfig(BaseNodeNodeQuantizationConfig):
                self.enable_weights_quantization == other.enable_weights_quantization and \
                self.min_threshold == other.min_threshold and \
                self.l_p_value == other.l_p_value
+               # TODO: do we need to compare params or is it not part of configuration comparison?
+               # self.weights_quantization_params == other.weights_quantization_params and \

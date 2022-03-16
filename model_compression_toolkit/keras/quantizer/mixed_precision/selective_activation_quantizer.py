@@ -1,4 +1,4 @@
-# Copyright 2021 Sony Semiconductors Israel, Inc. All rights reserved.
+# Copyright 2022 Sony Semiconductors Israel, Inc. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,57 +18,57 @@ import tensorflow as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow_model_optimization.python.core.quantization.keras.quantize_wrapper import QuantizeWrapper
 from tensorflow_model_optimization.python.core.quantization.keras.quantizers import Quantizer
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Callable
 
 from model_compression_toolkit.common.quantization.candidate_node_quantization_config import \
     CandidateNodeQuantizationConfig
+from model_compression_toolkit.common.quantization.node_quantization_config import NodeActivationQuantizationConfig
 
 
-class SelectiveQuantizer(Quantizer):
+class SelectiveActivationQuantizer(Quantizer):
     """
     Quantizer that can use different quantized weights on-the-fly.
     The general idea behind this kind of quantizer is that it gets the float tensor to quantize
     when initialize, it quantizes the float tensor in different bitwidths, and every time it need to return a
     quantized version of the float weight, it returns only one quantized weight according to an "active"
     index - the index of a candidate weight quantization configuration from a list of candidates that was passed
-    to the SelectiveQuantizer when it was initialized.
-    The "active" index can be configured as part of the SelectiveQuantizer's API, so a different quantized
+    to the SelectiveWeightsQuantizer when it was initialized.
+    The "active" index can be configured as part of the SelectiveWeightsQuantizer's API, so a different quantized
     weight can be returned in another time.
     """
 
     def __init__(self,
-                 node_q_cfg: List[CandidateNodeQuantizationConfig],
-                 float_weight: np.ndarray):
+                 node_q_cfg: List[CandidateNodeQuantizationConfig]):
         """
         Init a selective quantizer.
 
         Args:
             node_q_cfg: Quantization configuration candidate of the node that generated the layer that will
                 use this quantizer.
-            float_weight: Float weights of the layer.
         """
 
+        # TODO: can't change the order which is sort by weights first
         # Make sure the candidates configurations arrived in a descending order.
-        curmax = np.inf
-        for n_candidate in node_q_cfg:
-            assert n_candidate.weights_quantization_cfg.weights_n_bits < curmax
-            curmax = n_candidate.weights_quantization_cfg.weights_n_bits
+        # curmax = np.inf
+        # for n_candidate in node_q_cfg:
+        #     assert n_candidate.weights_quantization_cfg.weights_n_bits < curmax
+        #     curmax = n_candidate.weights_quantization_cfg.weights_n_bits
 
         self.node_q_cfg = node_q_cfg
 
-        # Use the node's quantizer. The SelectiveQuantizer is supported only if
+        # Use the node's quantizer. The SelectiveWeightsQuantizer is supported only if
         # all node's qc candidates use the same quantizer.
-        quantizer_fn = self.node_q_cfg[0].weights_quantization_cfg.weights_quantization_fn
+        quantizer_fn = self.node_q_cfg[0].activation_quantization_cfg.activation_quantization_fn
         for qc in self.node_q_cfg:
-            assert qc.weights_quantization_cfg.weights_quantization_fn == quantizer_fn
+            assert qc.activation_quantization_cfg.activation_quantization_fn == quantizer_fn
 
         self.quantizer_fn = quantizer_fn
-        self.float_weight = float_weight
-        self.quantized_weights = []
+        # TODO: decide how to handle this since configs arrive sorted by weights first
         self.active_quantization_config_index = 0  # initialize with first (maximal number of bits)
-        self._store_quantized_weights()
+        self.activation_quantizers = []
+        self._store_activation_quantizers()
 
-    def _quantize_by_qc(self, index: int) -> np.ndarray:
+    def _get_qc_quantizer(self, index: int) -> NodeActivationQuantizationConfig:
         """
         Quantize the quantizer float weight using a candidate quantization configuration.
 
@@ -78,15 +78,10 @@ class SelectiveQuantizer(Quantizer):
         Returns:
             Quantized weight.
         """
-        qc = self.node_q_cfg[index].weights_quantization_cfg
-        return self.quantizer_fn(self.float_weight,
-                                 qc.weights_n_bits,
-                                 True,
-                                 qc.weights_quantization_params,
-                                 qc.weights_per_channel_threshold,
-                                 qc.weights_channels_axis)
+        qc = self.node_q_cfg[index].activation_quantization_cfg
+        return qc
 
-    def _store_quantized_weights(self):
+    def _store_activation_quantizers(self):
         """
 
         Go over all candidates configurations, quantize the quantizer float weight according to each one
@@ -94,10 +89,8 @@ class SelectiveQuantizer(Quantizer):
 
         """
         for i in range(len(self.node_q_cfg)):
-            q_weight = self._quantize_by_qc(i)
-            self.quantized_weights.append(tf.Variable(q_weight,
-                                                      trainable=False,
-                                                      dtype=tf.float32))
+            q_activation = self._get_qc_quantizer(i)
+            self.activation_quantizers.append(q_activation.quantize_node_output)
 
     def build(self,
               tensor_shape: TensorShape,
@@ -112,7 +105,8 @@ class SelectiveQuantizer(Quantizer):
 
         return {}
 
-    def __call__(self, inputs: tf.Tensor,
+    def __call__(self,
+                 inputs: tf.Tensor,
                  training: bool,
                  weights: Dict[str, tf.Variable],
                  **kwargs: Dict[str, Any]) -> np.ndarray:
@@ -128,8 +122,7 @@ class SelectiveQuantizer(Quantizer):
             specific quantization configuration candidate (the candidate's index is the
             index that is in active_quantization_config_index the quantizer holds).
         """
-
-        return self.quantized_weights[self.active_quantization_config_index]
+        return self.activation_quantizers[self.active_quantization_config_index](inputs)
 
     def set_active_quantization_config_index(self, index: int):
         """
@@ -156,14 +149,6 @@ class SelectiveQuantizer(Quantizer):
         """
         return self.active_quantization_config_index
 
-    def get_active_quantized_weight(self) -> np.ndarray:
-        """
-
-        Returns: The current active quantized weight the quantizer holds.
-
-        """
-        return self.quantized_weights[self.active_quantization_config_index]
-
     def get_config(self) -> Dict[str, Any]:
         """
         Returns: Configuration of TrainableQuantizer.
@@ -171,7 +156,6 @@ class SelectiveQuantizer(Quantizer):
 
         return {
             'node_q_cfg': self.node_q_cfg,
-            'float_weight': self.float_weight,
             'quantizer_fn': self.quantizer_fn
         }
 
@@ -184,11 +168,10 @@ class SelectiveQuantizer(Quantizer):
         Returns:
             Whether they are equal or not.
         """
-        if not isinstance(other, SelectiveQuantizer):
+        if not isinstance(other, SelectiveActivationQuantizer):
             return False
 
         return (self.node_q_cfg == other.node_q_cfg and
-                self.float_weight == other.float_weight and
                 self.quantizer_fn == other.quantizer_fn)
 
     def __ne__(self, other: Any) -> bool:

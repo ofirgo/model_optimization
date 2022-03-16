@@ -20,8 +20,8 @@ from tensorflow_model_optimization.python.core.quantization.keras.default_8bit.d
 
 from model_compression_toolkit import common
 from model_compression_toolkit.common.framework_info import FrameworkInfo
-from model_compression_toolkit.keras.quantizer.mixed_precision.selective_weights_quantize_config import \
-    SelectiveWeightsQuantizeConfig
+from model_compression_toolkit.keras.quantizer.mixed_precision.selective_quantize_config import \
+    SelectiveQuantizeConfig
 
 
 
@@ -47,8 +47,8 @@ def quantization_config_builder_mixed_precision(n: common.BaseNode,
 
     float_weights = [n.get_weights_by_keys(attr) for attr in fw_info.get_kernel_op_attributes(n.type)]
 
-    # Create a SelectiveWeightsQuantizeConfig that holds the float and quantized weights (every weight is
+    # Create a SelectiveQuantizeConfig that holds the float and quantized weights (every weight is
     # quantized using all possible bitwidhts in the node's candidates weights quantization configurations).
-    return SelectiveWeightsQuantizeConfig(fw_info.get_kernel_op_attributes(n.type),
-                                          float_weights=float_weights,
-                                          node_q_cfg=node_q_cfg_candidates)
+    return SelectiveQuantizeConfig(fw_info.get_kernel_op_attributes(n.type),
+                                   float_weights=float_weights,
+                                   node_q_cfg=node_q_cfg_candidates)

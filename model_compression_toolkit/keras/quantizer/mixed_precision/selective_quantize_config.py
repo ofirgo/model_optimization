@@ -21,6 +21,8 @@ import tensorflow as tf
 # As from Tensorflow 2.6, keras is a separate package and some classes should be imported differently.
 from model_compression_toolkit.common.quantization.candidate_node_quantization_config import \
     CandidateNodeQuantizationConfig
+from model_compression_toolkit.keras.quantizer.mixed_precision.selective_activation_quantizer import \
+    SelectiveActivationQuantizer
 
 if tf.__version__ < "2.6":
     from tensorflow.python.keras.layers import Layer
@@ -29,19 +31,19 @@ else:
 from tensorflow.python.training.tracking.data_structures import ListWrapper
 from tensorflow_model_optimization.python.core.quantization.keras.quantize_config import QuantizeConfig
 
-from model_compression_toolkit.keras.quantizer.mixed_precision.selective_quantizer import SelectiveQuantizer
+from model_compression_toolkit.keras.quantizer.mixed_precision.selective_weights_quantizer import SelectiveWeightsQuantizer
 
 
-class SelectiveWeightsQuantizeConfig(QuantizeConfig):
+class SelectiveQuantizeConfig(QuantizeConfig):
     """
-    SelectiveWeightsQuantizeConfig to use as a QuantizeCong for layers that are wrapped
-    for MP models. SelectiveWeightsQuantizeConfig holds a SelectiveQuantizer and uses
+    SelectiveQuantizeConfig to use as a QuantizeCong for layers that are wrapped
+    for MP models. SelectiveQuantizeConfig holds a SelectiveWeightsQuantizer and uses
     it to use quantized weight from a set of quantized weights (each one of the
     quantized weights was quantized with different bitwidth).
-    At any given time, the SelectiveWeightsQuantizeConfig uses only one quantized weight
+    At any given time, the SelectiveQuantizeConfig uses only one quantized weight
     according to an "active" index - the index of a candidate weight quantization configuration
-    from a list of candidates that was passed to the SelectiveWeightsQuantizeConfig when it was initialized.
-    The "active" index can be configured as part of the SelectiveWeightsQuantizeConfig's API,
+    from a list of candidates that was passed to the SelectiveQuantizeConfig when it was initialized.
+    The "active" index can be configured as part of the SelectiveQuantizeConfig's API,
     so a different quantized weight can be used in another time.
     """
 
@@ -50,48 +52,80 @@ class SelectiveWeightsQuantizeConfig(QuantizeConfig):
                  float_weights: List[np.ndarray],
                  node_q_cfg: List[CandidateNodeQuantizationConfig]):
         """
-        Init a SelectiveWeightsQuantizeConfig instance.
+        Init a SelectiveQuantizeConfig instance.
 
         Args:
             weight_attrs: Attributes of the layer's weights to quantize, the
-            SelectiveWeightsQuantizeConfig is attached to.
-            float_weights: Float weights of the layer, the SelectiveWeightsQuantizeConfig is attached to.
+            SelectiveQuantizeConfig is attached to.
+            float_weights: Float weights of the layer, the SelectiveQuantizeConfig is attached to.
             node_q_cfg: Candidates quantization config the node has (the node from which
-            we built the layer that is attached to SelectiveWeightsQuantizeConfig).
+            we built the layer that is attached to SelectiveQuantizeConfig).
         """
         # Make sure the candidates configurations arrived in a descending order.
-        curmax = np.inf
-        for n_candidate in node_q_cfg:
-            assert n_candidate.weights_quantization_cfg.weights_n_bits < curmax
-            curmax = n_candidate.weights_quantization_cfg.weights_n_bits
+        curmax = (np.inf, np.inf)
+        n_candidate_bits = [(x.weights_quantization_cfg.weights_n_bits, x.activation_quantization_cfg.activation_n_bits)
+                            for x in node_q_cfg]
+        for candidate_bits in n_candidate_bits:
+            # assert n_candidate.weights_quantization_cfg.weights_n_bits < curmax
+            # curmax = n_candidate.weights_quantization_cfg.weights_n_bits
+            assert candidate_bits < curmax
+            curmax = candidate_bits
 
         self.weight_attrs = weight_attrs
-        assert len(node_q_cfg) > 0, 'SelectiveWeightsQuantizeConfig has to receive' \
+        assert len(node_q_cfg) > 0, 'SelectiveQuantizeConfig has to receive' \
                                             'at least one weight quantization configuration'
         assert len(weight_attrs) == len(float_weights)
 
         self.node_q_cfg = node_q_cfg
+        self.enable_weights_quantization = node_q_cfg[0].weights_quantization_cfg.enable_weights_quantization
+        self.enable_activation_quantization = node_q_cfg[0].activation_quantization_cfg.enable_activation_quantization
+        # Initialize a SelectiveWeightsQuantizer for each weight that should be quantized.
 
-        # Initialize a SelectiveQuantizer for each weight that should be quantized.
-        self.weight_quantizers = [SelectiveQuantizer(node_q_cfg,
-                                                     float_weight=float_weight) for float_weight in float_weights]
+        self.weight_quantizers = []
+        if self.enable_weights_quantization:
+            self.weight_quantizers = [SelectiveWeightsQuantizer(node_q_cfg,
+                                                                float_weight=float_weight) for float_weight
+                                      in float_weights]
 
-    def get_candidate_nbits(self) -> List[int]:
+        self.activation_selective_quantizer = None if not self.enable_activation_quantization else \
+            SelectiveActivationQuantizer(node_q_cfg)
+
+    def get_candidate_nbits(self) -> List[Tuple[int, int]]:
         """
 
-        Returns: All possible number of bits the SelectiveWeightsQuantizeConfig holds.
+        Returns: All possible number of bits the SelectiveQuantizeConfig holds.
 
         """
-        return [x.weights_quantization_cfg.weights_n_bits for x in self.node_q_cfg]
+        return [(x.weights_quantization_cfg.weights_n_bits, x.activation_quantization_cfg.activation_n_bits)
+                for x in self.node_q_cfg]
 
     def set_bit_width_index(self,
                             index: int,
-                            attr: str=None):
+                            attr: str = None):
         """
-        Change the "active" bitwidth index the SelectiveWeightsQuantizeConfig uses, so
+        Change the "active" bitwidth index the SelectiveQuantizeConfig uses, so
         a different quantized weight will be used.
         If attr is passed, only the quantizer that was created for this attribute will be configured.
-        Otherwise, all quantizers the SelectiveWeightsQuantizeConfig holds will be configured
+        Otherwise, all quantizers the SelectiveQuantizeConfig holds will be configured
+        using the passed index.
+
+        Args:
+            index: Bitwidth index to use.
+            attr: Name of the layer's attribute to configure its corresponding quantizer.
+
+        """
+
+        self.set_weights_bit_width_index(index, attr)
+        self.set_activation_bit_width_index(index)
+
+    def set_weights_bit_width_index(self,
+                            index: int,
+                            attr: str=None):
+        """
+        Change the "active" bitwidth index the SelectiveQuantizeConfig uses, so
+        a different quantized weight will be used.
+        If attr is passed, only the quantizer that was created for this attribute will be configured.
+        Otherwise, all quantizers the SelectiveQuantizeConfig holds will be configured
         using the passed index.
 
         Args:
@@ -108,19 +142,34 @@ class SelectiveWeightsQuantizeConfig(QuantizeConfig):
             q = self.weight_quantizers[i]
             q.set_active_quantization_config_index(index)
 
+    def set_activation_bit_width_index(self,
+                                       index: int):
+        """
+        Change the "active" bitwidth index the SelectiveQuantizeConfig uses, so
+        a different quantized weight will be used.
+        If attr is passed, only the quantizer that was created for this attribute will be configured.
+        Otherwise, all quantizers the SelectiveQuantizeConfig holds will be configured
+        using the passed index.
+
+        Args:
+            index: Bitwidth index to use.
+            attr: Name of the layer's attribute to configure its corresponding quantizer.
+
+        """
+        self.activation_selective_quantizer.set_active_quantization_config_index(index)
+
     def get_weights_and_quantizers(self, layer: Layer) -> List[Tuple[Tensor, Any]]:
         """
         Get a list of tuples with weights and the weights quantizers.
         The layer's attributes are used to get the weights.
         Args:
-            layer: The layer the SelectiveWeightsQuantizeConfig is attached to when is wrapped.
+            layer: The layer the SelectiveQuantizeConfig is attached to when is wrapped.
 
         Returns:
             List of tuples of the layer's weights and the weights quantizers.
         """
-
-        return [(getattr(layer, self.weight_attrs[i]), self.weight_quantizers[i])
-                for i in range(len(self.weight_attrs))]
+        return [] if not self.enable_weights_quantization else \
+            [(getattr(layer, self.weight_attrs[i]), self.weight_quantizers[i]) for i in range(len(self.weight_attrs))]
 
     def get_activations_and_quantizers(self, layer: Layer) -> list:
         # This QuantizeConfig is for quantizing weights only, so no
@@ -135,6 +184,9 @@ class SelectiveWeightsQuantizeConfig(QuantizeConfig):
             quantize_weights: Quantized weights to set as new weights.
 
         """
+        if not self.enable_weights_quantization:
+            return
+
         if len(self.weight_attrs) != len(quantize_weights):
             raise ValueError(
                 '`set_quantize_weights` called on layer {} with {} '
@@ -151,18 +203,18 @@ class SelectiveWeightsQuantizeConfig(QuantizeConfig):
             setattr(layer, weight_attr, weight)
 
     def set_quantize_activations(self, layer, quantize_activations: ListWrapper):
-        # This QuantizeConfig is for quantizing weights only, so no
-        # implementation is needed for activation quantization.
+        # assert len(quantize_activations) == 1, f"Number of quantized activations is {len(quantize_activations)}, " \
+        #                                        f"expected 1."
+        # layer.activation = quantize_activations[0]
         pass
 
     def get_output_quantizers(self, layer: Layer) -> list:
-        # This QuantizeConfig is for quantizing weights only, so no
-        # implementation is needed for activation quantization.
-        return []
+        # return self.activation_selective_quantizer.activation_quantizers
+        return [] if not self.enable_activation_quantization else [self.activation_selective_quantizer]
 
     def get_config(self) -> Dict[str, Any]:
         """
-        Returns: The SelectiveWeightsQuantizeConfig configuration.
+        Returns: The SelectiveQuantizeConfig configuration.
         """
 
         return {
