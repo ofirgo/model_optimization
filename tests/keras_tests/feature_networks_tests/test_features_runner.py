@@ -20,7 +20,8 @@ from model_compression_toolkit import QuantizationErrorMethod
 from tests.keras_tests.feature_networks_tests.feature_networks.activation_scaling_relu6_test import \
     ActivationScalingReLU6Test
 from tests.keras_tests.feature_networks_tests.feature_networks.mixed_percision_activation_test import \
-    MixedPercisionActivationSearchTest
+    MixedPrecisionActivationSearchTest, MixedPrecisionActivationSearchKPI4BitsAvgTest, \
+    MixedPrecisionActivationSearchKPI2BitsAvgTest
 
 from tests.keras_tests.feature_networks_tests.feature_networks.mixed_percision_test import MixedPercisionBaseTest, \
     MixedPercisionSearchTest, MixedPercisionManuallyConfiguredTest, MixedPercisionDepthwiseTest, \
@@ -106,10 +107,19 @@ class FeatureNetworkTest(unittest.TestCase):
         MixedPercisionSearchTest(self).run_test()
 
     def test_mixed_precision_activation_search(self):
-        MixedPercisionActivationSearchTest(self).run_test()
+        MixedPrecisionActivationSearchTest(self).run_test()
+
+    def test_mixed_precision_activation_search_kpi_4bits_avg(self):
+        MixedPrecisionActivationSearchKPI4BitsAvgTest(self).run_test()
+
+    def test_mixed_precision_activation_search_kpi_2bits_avg(self):
+        MixedPrecisionActivationSearchKPI2BitsAvgTest(self).run_test()
 
     def test_mixed_precision_dw(self):
         MixedPercisionDepthwiseTest(self).run_test()
+
+    # def test_mixed_precision_activation_dw(self):
+    #     MixedPrecisionActivationDepthwiseTest(self).run_test()
 
     def test_name_filter(self):
         NameFilterTest(self).run_test()

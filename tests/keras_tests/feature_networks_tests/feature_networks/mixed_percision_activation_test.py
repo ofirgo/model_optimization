@@ -30,7 +30,7 @@ keras = tf.keras
 layers = keras.layers
 
 
-class MixedPercisionActivationBaseTest(BaseKerasFeatureNetworkTest):
+class MixedPrecisionActivationBaseTest(BaseKerasFeatureNetworkTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
 
@@ -65,7 +65,7 @@ class MixedPercisionActivationBaseTest(BaseKerasFeatureNetworkTest):
         # compare things to test.
         raise NotImplementedError
 
-#
+
 # class MixedPercisionManuallyConfiguredTest(MixedPercisionBaseTest):
 #
 #     def get_quantization_config(self):
@@ -94,13 +94,13 @@ class MixedPercisionActivationBaseTest(BaseKerasFeatureNetworkTest):
 #         self.unit_test.assertTrue(np.unique(quantized_model.layers[4].weights[0]).flatten().shape[0] <= 8)
 
 
-class MixedPercisionActivationSearchTest(MixedPercisionActivationBaseTest):
+class MixedPrecisionActivationSearchTest(MixedPrecisionActivationBaseTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
 
     def get_kpi(self):
         # kpi is infinity -> should give best model - 8bits on all layers for both weights and activations
-        return KPI(np.inf)
+        return KPI(np.inf, np.inf)
 
     def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
         qc = self.get_quantization_config()
@@ -108,7 +108,7 @@ class MixedPercisionActivationSearchTest(MixedPercisionActivationBaseTest):
         candidates.sort(key=lambda c: (c[0], c[1]), reverse=True)
 
         # kpi is infinity -> should give best model - 8bits
-        # all layers in the test model have weights that need to be quantized
+        # all layers in the test model have activations that need to be quantized
         activation_candidates = list(map(lambda c: c[1], candidates))
         activation_bits = [activation_candidates[i] for i in quantization_info.mixed_precision_cfg]
         self.unit_test.assertTrue((activation_bits == [8, 8, 8, 8]))
@@ -128,49 +128,77 @@ class MixedPercisionActivationSearchTest(MixedPercisionActivationBaseTest):
                 np.unique(quantized_model.layers[4].weights[0][:, :, :, i]).flatten().shape[0] <= 256)
 
         # TODO: verify activation quantization (how do we get the quantized tensors?)
-#
-# class MixedPercisionSearchKPI4BitsAvgTest(MixedPercisionBaseTest):
-#     def __init__(self, unit_test):
-#         super().__init__(unit_test)
-#
-#     def get_kpi(self):
-#         # kpi is for 4 bits on average
-#         return KPI(2544140 * 4 / 8)
-#
-#     def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
-#         assert (quantization_info.mixed_precision_cfg == [1, 1]).all()
-#         for i in range(30):  # quantized per channel
-#             self.unit_test.assertTrue(
-#                 np.unique(quantized_model.layers[2].weights[0][:, :, :, i]).flatten().shape[0] <= 16)
-#         for i in range(50):  # quantized per channel
-#             self.unit_test.assertTrue(
-#                 np.unique(quantized_model.layers[4].weights[0][:, :, :, i]).flatten().shape[0] <= 16)
-#
 
-# class MixedPercisionSearchKPI2BitsAvgTest(MixedPercisionBaseTest):
+
+class MixedPrecisionActivationSearchKPI4BitsAvgTest(MixedPrecisionActivationBaseTest):
+    def __init__(self, unit_test):
+        super().__init__(unit_test)
+
+    def get_kpi(self):
+        # kpi is for 4 bits on average
+        return KPI(weights_memory=2544000 * 4 / 8, activation_memory=2677486 * 4 / 8)
+
+    def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
+        qc = self.get_quantization_config()
+        candidates = qc.n_bits_candidates
+        candidates.sort(key=lambda c: (c[0], c[1]), reverse=True)
+
+        # all layers in the test model have activations that need to be quantized
+        activation_candidates = list(map(lambda c: c[1], candidates))
+        activation_bits = [activation_candidates[i] for i in quantization_info.mixed_precision_cfg]
+
+        # only second and third layers in the test model have weights that need to be quantized
+        weights_candidates = list(map(lambda c: c[0], candidates))
+        weights_bits = [weights_candidates[quantization_info.mixed_precision_cfg[1]],
+                        weights_candidates[quantization_info.mixed_precision_cfg[2]]]
+
+        # verify that at least one layer is quantized with less than 8 bits
+        self.unit_test.assertTrue(np.any(np.asarray([weights_bits + activation_bits]) != 8))
+
+        # TODO: extend test
+
+
+class MixedPrecisionActivationSearchKPI2BitsAvgTest(MixedPrecisionActivationBaseTest):
+    def __init__(self, unit_test):
+        super().__init__(unit_test)
+
+    def get_kpi(self):
+        # kpi is for 2 bits on average
+        return KPI(weights_memory=2544000 * 2 / 8, activation_memory=2677486 * 2 / 8)
+
+    def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
+        qc = self.get_quantization_config()
+        candidates = qc.n_bits_candidates
+        candidates.sort(key=lambda c: (c[0], c[1]), reverse=True)
+
+        # kpi is minimal -> should give minimal model - 2bits for
+        # all layers in the test model have activations that need to be quantized
+        activation_candidates = list(map(lambda c: c[1], candidates))
+        activation_bits = [activation_candidates[i] for i in quantization_info.mixed_precision_cfg]
+        self.unit_test.assertTrue((activation_bits == [2, 2, 2, 2]))
+
+        # only second and third layers in the test model have weights that need to be quantized
+        weights_candidates = list(map(lambda c: c[0], candidates))
+        weights_bits = [weights_candidates[quantization_info.mixed_precision_cfg[1]],
+                        weights_candidates[quantization_info.mixed_precision_cfg[2]]]
+        self.unit_test.assertTrue((weights_bits == [2, 2]))
+
+        for i in range(30):  # quantized per channel
+            self.unit_test.assertTrue(
+                np.unique(quantized_model.layers[2].weights[0][:, :, :, i]).flatten().shape[0] <= 4)
+        for i in range(50):  # quantized per channel
+            self.unit_test.assertTrue(
+                np.unique(quantized_model.layers[4].weights[0][:, :, :, i]).flatten().shape[0] <= 4)
+
+        # TODO: verify activation quantization (how do we get the quantized tensors?)
+
+#
+# class MixedPrecisionActivationDepthwiseTest(MixedPrecisionActivationBaseTest):
 #     def __init__(self, unit_test):
 #         super().__init__(unit_test)
 #
 #     def get_kpi(self):
-#         # kpi is for 2 bits on average
-#         return KPI(2544200 * 2 / 8)
-#
-#     def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
-#         assert (quantization_info.mixed_precision_cfg == [2, 2]).all()
-#         for i in range(30):  # quantized per channel
-#             self.unit_test.assertTrue(
-#                 np.unique(quantized_model.layers[2].weights[0][:, :, :, i]).flatten().shape[0] <= 4)
-#         for i in range(50):  # quantized per channel
-#             self.unit_test.assertTrue(
-#                 np.unique(quantized_model.layers[4].weights[0][:, :, :, i]).flatten().shape[0] <= 4)
-#
-#
-# class MixedPercisionDepthwiseTest(MixedPercisionBaseTest):
-#     def __init__(self, unit_test):
-#         super().__init__(unit_test)
-#
-#     def get_kpi(self):
-#         return KPI(np.inf)
+#         return KPI(np.inf, np.inf)
 #
 #     def create_networks(self):
 #         inputs = layers.Input(shape=self.get_input_shapes()[0][1:])
@@ -181,16 +209,22 @@ class MixedPercisionActivationSearchTest(MixedPercisionActivationBaseTest):
 #         return model
 #
 #     def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
-#         y = float_model.predict(input_x)
-#         y_hat = quantized_model.predict(input_x)
-#         cs = cosine_similarity(y, y_hat)
-#         self.unit_test.assertTrue(np.isclose(cs, 1), msg=f'fail cosine similarity check:{cs}')
+#         qc = self.get_quantization_config()
+#         candidates = qc.n_bits_candidates
+#         candidates.sort(key=lambda c: (c[0], c[1]), reverse=True)
 #
-#     def get_quantization_config(self):
-#         qc = mct.QuantizationConfig(mct.QuantizationErrorMethod.MSE, mct.QuantizationErrorMethod.MSE,
-#                                     mct.QuantizationMethod.POWER_OF_TWO, mct.QuantizationMethod.POWER_OF_TWO,
-#                                     activation_n_bits=16, relu_unbound_correction=False, weights_bias_correction=False,
-#                                     weights_per_channel_threshold=True, input_scaling=False,
-#                                     activation_channel_equalization=False)
+#         # kpi is infinity -> should give best model - 8bits
+#         # all layers in the test model have activations that need to be quantized
+#         activation_candidates = list(map(lambda c: c[1], candidates))
+#         activation_bits = [activation_candidates[i] for i in quantization_info.mixed_precision_cfg]
+#         self.unit_test.assertTrue((activation_bits == [8, 8, 8]))
 #
-#         return MixedPrecisionQuantizationConfig(qc, n_bits_candidates=[(2, 16), (8, 16), (4, 16), (16, 16)])
+#         # only second layer in the test model have weights that need to be quantized
+#         weights_candidates = list(map(lambda c: c[0], candidates))
+#         weights_bits = [weights_candidates[quantization_info.mixed_precision_cfg[1]]]
+#         self.unit_test.assertTrue((weights_bits == [8]))
+        # y = float_model.predict(input_x)
+        # y_hat = quantized_model.predict(input_x)
+        # cs = cosine_similarity(y, y_hat)
+        # self.unit_test.assertTrue(np.isclose(cs, 1), msg=f'fail cosine similarity check:{cs}')
+
