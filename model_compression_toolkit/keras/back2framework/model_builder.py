@@ -15,15 +15,24 @@
 
 
 import tensorflow as tf
+import tensorflow_model_optimization.quantization.keras.graph_transformations.model_transformer as mt
+from keras.engine.keras_tensor import KerasTensor
+from tensorflow.keras.layers import InputLayer
 
 # As from Tensorflow 2.6, keras is a separate package and some classes should be imported differently.
+from tensorflow_model_optimization.python.core.quantization.keras.default_8bit.default_8bit_transforms import \
+    InputLayerQuantize
+
+from model_compression_toolkit.keras.quantizer.mixed_precision.input_layer_quantize_transform import \
+    InputLayerQuantizeTransform
+
 if tf.__version__ < "2.6":
     from tensorflow.keras.layers import Input
     from tensorflow.python.keras.layers.core import TFOpLambda
     from tensorflow.python.keras.engine.base_layer import TensorFlowOpLayer
     from tensorflow.python.keras.layers import Layer
 else:
-    from keras import Input
+    from keras import Input, Model
     from keras.layers.core import TFOpLambda
     from keras.engine.base_layer import TensorFlowOpLayer, Layer
 
@@ -112,7 +121,8 @@ def run_operation(n: BaseNode,
                   input_tensors: List[List[TFReference]],
                   op_func: Layer,
                   input_nodes_to_input_tensors: Dict[BaseNode, Any],
-                  mode: ModelBuilderMode = ModelBuilderMode.QUANTIZED) -> List[TFReference]:
+                  mode: ModelBuilderMode = ModelBuilderMode.QUANTIZED,
+                  fw_info: FrameworkInfo = DEFAULT_KERAS_INFO) -> List[TFReference]:
     """
     Applying the layer (op_func) to the input tensors (input_tensors).
     If quantized is set to True, and the layer's corresponding node (n) has quantization
@@ -308,8 +318,14 @@ def model_builder(graph: common.Graph,
                     f'Mismatch between keras model and graph cant find node named: {get_node_name_from_layer(layer)}')
 
         # clone each layer in the model and apply _quantize to the layer.
-        model = tf.keras.models.clone_model(model, input_tensors=None, clone_function=_quantize_multiple_nbits)
+        # input_layer = [Input(graph.get_inputs()[0].framework_attr[BATCH_INPUT_SHAPE][1:])]
+        # input_layer = [Input(shape=graph.get_inputs()[0].input_shape)]
 
+        model = tf.keras.models.clone_model(model, input_tensors=None, clone_function=_quantize_multiple_nbits)
+        # input_transformer = mt.ModelTransformer(model, [InputLayerQuantize()])
+        input_transformer = mt.ModelTransformer(model, [InputLayerQuantizeTransform(graph.get_inputs(), fw_info)])
+        model = input_transformer.transform()[0]
+        print(model.layers)
     # Models that were built in float or quantized mode, should not be modified anymore.
     elif mode == ModelBuilderMode.FLOAT or mode == ModelBuilderMode.QUANTIZED:
         pass

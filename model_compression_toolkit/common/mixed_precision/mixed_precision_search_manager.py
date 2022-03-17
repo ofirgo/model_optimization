@@ -121,7 +121,7 @@ class MixedPrecisionSearchManager(object):
                     # for it).
                     assert n.reuse, "If node has candidates it should be part of the configurable nodes," \
                                     " unless it's a reused node"
-                    node_nbits = 0  # Ignore reused nodes is the KPI computation.
+                    node_nbits = (0, 0)  # Ignore reused nodes is the KPI computation.
                 else:  # No quantization
                     node_nbits = (0, 0)
 
@@ -136,7 +136,8 @@ class MixedPrecisionSearchManager(object):
                 # currently, consider layer's activation size as size of input,
                 # and total model size as sum of nodes' input.
                 # TODO: if later changing activation size metric, then need to refactor here
-                node_input_size = n.input_shape.flatten().shape[0]
+                #   can change to max in-out of activations if we gather all in the loop and outside take the max
+                node_input_size = n.get_total_input_params()
                 node_activation_memory_in_bytes = node_input_size * node_nbits[0] / 8.0
                 weights_memory += node_weights_memory_in_bytes
                 activations_memory += node_activation_memory_in_bytes

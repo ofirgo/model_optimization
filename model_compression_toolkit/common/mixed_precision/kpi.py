@@ -22,8 +22,8 @@ class KPI(object):
     """
 
     def __init__(self,
-                 weights_memory: float=np.inf,
-                 activation_memory: float=np.inf):
+                 weights_memory: float = np.inf,
+                 activation_memory: float = np.inf):
         """
 
         Args:

@@ -48,9 +48,9 @@ class SelectiveQuantizeConfig(QuantizeConfig):
     """
 
     def __init__(self,
-                 weight_attrs: List[str],
-                 float_weights: List[np.ndarray],
-                 node_q_cfg: List[CandidateNodeQuantizationConfig]):
+                 node_q_cfg: List[CandidateNodeQuantizationConfig],
+                 float_weights: List[np.ndarray] = None,
+                 weight_attrs: List[str] = None):
         """
         Init a SelectiveQuantizeConfig instance.
 
@@ -72,9 +72,11 @@ class SelectiveQuantizeConfig(QuantizeConfig):
             curmax = candidate_bits
 
         self.weight_attrs = weight_attrs
+        self.float_weights = float_weights
+
         assert len(node_q_cfg) > 0, 'SelectiveQuantizeConfig has to receive' \
                                             'at least one weight quantization configuration'
-        assert len(weight_attrs) == len(float_weights)
+        assert (not weight_attrs and not float_weights) or len(weight_attrs) == len(float_weights)
 
         self.node_q_cfg = node_q_cfg
         self.enable_weights_quantization = node_q_cfg[0].weights_quantization_cfg.enable_weights_quantization
@@ -156,6 +158,8 @@ class SelectiveQuantizeConfig(QuantizeConfig):
             attr: Name of the layer's attribute to configure its corresponding quantizer.
 
         """
+        if not self.enable_activation_quantization:
+            return
         self.activation_selective_quantizer.set_active_quantization_config_index(index)
 
     def get_weights_and_quantizers(self, layer: Layer) -> List[Tuple[Tensor, Any]]:
@@ -219,5 +223,6 @@ class SelectiveQuantizeConfig(QuantizeConfig):
 
         return {
             'weight_attrs': self.weight_attrs,
-            'weights_candidates_quantization_configs': self.weights_candidates_quantization_configs
+            'float_weights': self.float_weights,
+            'node_q_cfg': self.node_q_cfg
         }

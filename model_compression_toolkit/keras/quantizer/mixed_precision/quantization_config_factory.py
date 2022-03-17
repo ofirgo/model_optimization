@@ -49,6 +49,6 @@ def quantization_config_builder_mixed_precision(n: common.BaseNode,
 
     # Create a SelectiveQuantizeConfig that holds the float and quantized weights (every weight is
     # quantized using all possible bitwidhts in the node's candidates weights quantization configurations).
-    return SelectiveQuantizeConfig(fw_info.get_kernel_op_attributes(n.type),
+    return SelectiveQuantizeConfig(node_q_cfg=node_q_cfg_candidates,
                                    float_weights=float_weights,
-                                   node_q_cfg=node_q_cfg_candidates)
+                                   weight_attrs=fw_info.get_kernel_op_attributes(n.type))

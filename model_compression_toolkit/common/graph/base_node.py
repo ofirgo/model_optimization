@@ -257,3 +257,11 @@ class BaseNode:
                    self.candidates_quantization_cfg[0].weights_quantization_cfg
                    for candidate in self.candidates_quantization_cfg)
 
+    def get_total_input_params(self):
+        total_params = 1
+        for axis_size in self.input_shape:
+            if axis_size is None:
+                continue
+            total_params *= axis_size
+        return total_params
+
