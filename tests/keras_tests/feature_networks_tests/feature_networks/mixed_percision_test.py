@@ -75,7 +75,7 @@ class MixedPercisionManuallyConfiguredTest(MixedPercisionBaseTest):
                                     weights_per_channel_threshold=False, input_scaling=True,
                                     activation_channel_equalization=True)
 
-        return MixedPrecisionQuantizationConfig(qc, weights_n_bits=[8, 2, 3])
+        return MixedPrecisionQuantizationConfig(qc, n_bits_candidates=[(8, 8), (2, 8), (3, 8)])
 
     def get_bit_widths_config(self):
         # First layer should be quantized using 2 bits

@@ -24,15 +24,15 @@ from model_compression_toolkit.common.quantization.candidate_node_quantization_c
     CandidateNodeQuantizationConfig
 
 
-class SelectiveQuantizer(Quantizer):
+class SelectiveWeightsQuantizer(Quantizer):
     """
     Quantizer that can use different quantized weights on-the-fly.
     The general idea behind this kind of quantizer is that it gets the float tensor to quantize
     when initialize, it quantizes the float tensor in different bitwidths, and every time it need to return a
     quantized version of the float weight, it returns only one quantized weight according to an "active"
     index - the index of a candidate weight quantization configuration from a list of candidates that was passed
-    to the SelectiveQuantizer when it was initialized.
-    The "active" index can be configured as part of the SelectiveQuantizer's API, so a different quantized
+    to the SelectiveWeightsQuantizer when it was initialized.
+    The "active" index can be configured as part of the SelectiveWeightsQuantizer's API, so a different quantized
     weight can be returned in another time.
     """
 
@@ -49,14 +49,16 @@ class SelectiveQuantizer(Quantizer):
         """
 
         # Make sure the candidates configurations arrived in a descending order.
-        curmax = np.inf
-        for n_candidate in node_q_cfg:
-            assert n_candidate.weights_quantization_cfg.weights_n_bits < curmax
-            curmax = n_candidate.weights_quantization_cfg.weights_n_bits
+        curmax = (np.inf, np.inf)
+        n_candidate_bits = [(x.weights_quantization_cfg.weights_n_bits, x.activation_quantization_cfg.activation_n_bits)
+                            for x in node_q_cfg]
+        for candidate_bits in n_candidate_bits:
+            assert candidate_bits < curmax
+            curmax = candidate_bits
 
         self.node_q_cfg = node_q_cfg
 
-        # Use the node's quantizer. The SelectiveQuantizer is supported only if
+        # Use the node's quantizer. The SelectiveWeightsQuantizer is supported only if
         # all node's qc candidates use the same quantizer.
         quantizer_fn = self.node_q_cfg[0].weights_quantization_cfg.weights_quantization_fn
         for qc in self.node_q_cfg:
@@ -184,7 +186,7 @@ class SelectiveQuantizer(Quantizer):
         Returns:
             Whether they are equal or not.
         """
-        if not isinstance(other, SelectiveQuantizer):
+        if not isinstance(other, SelectiveWeightsQuantizer):
             return False
 
         return (self.node_q_cfg == other.node_q_cfg and
