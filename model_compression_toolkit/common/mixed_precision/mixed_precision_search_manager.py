@@ -128,22 +128,26 @@ class MixedPrecisionSearchManager(object):
                 else:  # No quantization
                     node_nbits = (0, 0)
 
+                # Weights memory size computation
                 # Consider only the weights that should be quantized.
-                node_num_weights_params = 0
-                for attr in self.fw_info.get_kernel_op_attributes(n.type):
-                    if attr is not None:
-                        node_num_weights_params += n.get_weights_by_keys(attr).flatten().shape[0]
+                if n.is_weights_quantization_enabled and not n.is_all_weights_candidates_equal():
+                    node_num_weights_params = 0
+                    for attr in self.fw_info.get_kernel_op_attributes(n.type):
+                        if attr is not None:
+                            node_num_weights_params += n.get_weights_by_keys(attr).flatten().shape[0]
 
-                node_weights_memory_in_bytes = node_num_weights_params * node_nbits[0] / 8.0
+                    node_weights_memory_in_bytes = node_num_weights_params * node_nbits[0] / 8.0
+                    weights_memory += node_weights_memory_in_bytes
 
-                # currently, consider layer's activation size as size of input,
+                # Activation memory size computation
+                # Currently, consider layer's activation size as size of input,
                 # and total model size as sum of nodes' input.
-                # TODO: if later changing activation size metric, than need to refactor here
-                #   can change to max in-out of activations if we gather all in the loop and outside take the max
-                node_input_size = n.get_total_input_params()
-                node_activation_memory_in_bytes = node_input_size * node_nbits[1] / 8.0
-                weights_memory += node_weights_memory_in_bytes
-                activations_memory += node_activation_memory_in_bytes
+                if n.is_activation_quantization_enabled and not n.is_all_activation_candidates_equal():
+                    # TODO: if later changing activation size metric, than need to refactor here
+                    #   can change to max in-out of activations if we gather all in the loop and outside take the max
+                    node_input_size = n.get_total_input_params()
+                    node_activation_memory_in_bytes = node_input_size * node_nbits[1] / 8.0
+                    activations_memory += node_activation_memory_in_bytes
 
             return KPI(weights_memory=weights_memory,
                        activation_memory=activations_memory)
