@@ -312,8 +312,14 @@ def model_builder(graph: common.Graph,
 
         # clone each layer in the model and apply _quantize to the layer.
         model = tf.keras.models.clone_model(model, input_tensors=None, clone_function=_quantize_multiple_nbits)
-        input_transformer = mt.ModelTransformer(model, [InputLayerQuantizeTransform(graph.get_inputs(), fw_info)])
-        model = input_transformer.transform()[0]
+
+        # add configurable input layers in case of activation mixed-precision
+        model_inputs = graph.get_inputs()
+        for inp in model_inputs:
+            if inp.is_activation_quantization_enabled() and not inp.is_all_activation_candidates_equal():
+                input_transformer = mt.ModelTransformer(model, [InputLayerQuantizeTransform(inp, fw_info)])
+                model = input_transformer.transform()[0]
+
     # Models that were built in float or quantized mode, should not be modified anymore.
     elif mode == ModelBuilderMode.FLOAT or mode == ModelBuilderMode.QUANTIZED:
         pass

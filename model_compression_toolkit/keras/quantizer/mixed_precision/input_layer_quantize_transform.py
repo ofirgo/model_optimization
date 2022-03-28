@@ -15,19 +15,19 @@ class InputLayerQuantizeTransform(transforms.Transform):
     InputLayer => InputLayer -> QuantizeLayer
     """
 
-    def __init__(self, inputs, fw_info):
+    def __init__(self, input_layer, fw_info):
         super(InputLayerQuantizeTransform, self).__init__()
 
-        self.inputs = inputs[0]
+        self.input_layer = input_layer
         self.fw_info = fw_info
-        self.name = self.inputs.name
+        self.name = self.input_layer.name
 
     def pattern(self):
         return transforms.LayerPattern('InputLayer')
 
     def replacement(self, match_layer):
-        quant_layer = QuantizeWrapper(InputLayer(input_shape=self.inputs.input_shape),
-                                      quantization_config_builder_mixed_precision(self.inputs, self.fw_info))
+        quant_layer = QuantizeWrapper(InputLayer(input_shape=self.input_layer.input_shape),
+                                      quantization_config_builder_mixed_precision(self.input_layer, self.fw_info))
         layer_config = keras.layers.serialize(quant_layer)
         layer_config['name'] = f"quant_{self.name}"
         layer_config['config']['name'] = f"quant_{self.name}"
@@ -42,5 +42,4 @@ class InputLayerQuantizeTransform(transforms.Transform):
         return {
           'QuantizeWrapper': QuantizeWrapper,
           'SelectiveQuantizeConfig': SelectiveQuantizeConfig,
-
         }

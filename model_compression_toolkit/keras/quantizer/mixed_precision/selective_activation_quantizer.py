@@ -45,14 +45,6 @@ class SelectiveActivationQuantizer(Quantizer):
             node_q_cfg: Quantization configuration candidate of the node that generated the layer that will
                 use this quantizer.
         """
-
-        # TODO: can't change the order which is sort by weights first
-        # Make sure the candidates configurations arrived in a descending order.
-        # curmax = np.inf
-        # for n_candidate in node_q_cfg:
-        #     assert n_candidate.weights_quantization_cfg.weights_n_bits < curmax
-        #     curmax = n_candidate.weights_quantization_cfg.weights_n_bits
-
         self.node_q_cfg = node_q_cfg
 
         # Use the node's quantizer. The SelectiveWeightsQuantizer is supported only if

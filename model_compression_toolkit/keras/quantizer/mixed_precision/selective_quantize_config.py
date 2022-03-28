@@ -101,21 +101,21 @@ class SelectiveQuantizeConfig(QuantizeConfig):
                             attr: str = None):
         """
         Change the "active" bitwidth index the SelectiveQuantizeConfig uses, so
-        a different quantized weight will be used.
+        a different quantized weight and activation will be used.
         If attr is passed, only the quantizer that was created for this attribute will be configured.
         Otherwise, all quantizers the SelectiveQuantizeConfig holds will be configured
         using the passed index.
         Args:
             index: Bitwidth index to use.
-            attr: Name of the layer's attribute to configure its corresponding quantizer.
+            attr: Name of the layer's weights attribute to configure its corresponding quantizer.
         """
 
         self.set_weights_bit_width_index(index, attr)
         self.set_activation_bit_width_index(index)
 
     def set_weights_bit_width_index(self,
-                            index: int,
-                            attr: str=None):
+                                    index: int,
+                                    attr: str = None):
         """
         Change the "active" bitwidth index the SelectiveQuantizeConfig uses, so
         a different quantized weight will be used.
@@ -127,13 +127,14 @@ class SelectiveQuantizeConfig(QuantizeConfig):
             attr: Name of the layer's attribute to configure its corresponding quantizer.
         """
 
-        if attr is None:  # set bit width to all weights of the layer
-            for q in self.weight_quantizers:
+        if self.enable_weights_quantization:
+            if attr is None:  # set bit width to all weights of the layer
+                for q in self.weight_quantizers:
+                    q.set_active_quantization_config_index(index)
+            else:  # set bit width to a specific selectivequantizer
+                i = self.weight_attrs.index(attr)
+                q = self.weight_quantizers[i]
                 q.set_active_quantization_config_index(index)
-        else:  # set bit width to a specific selectivequantizer
-            i = self.weight_attrs.index(attr)
-            q = self.weight_quantizers[i]
-            q.set_active_quantization_config_index(index)
 
     def set_activation_bit_width_index(self,
                                        index: int):
@@ -147,9 +148,8 @@ class SelectiveQuantizeConfig(QuantizeConfig):
             index: Bitwidth index to use.
             attr: Name of the layer's attribute to configure its corresponding quantizer.
         """
-        if not self.enable_activation_quantization:
-            return
-        self.activation_selective_quantizer.set_active_quantization_config_index(index)
+        if self.enable_activation_quantization:
+            self.activation_selective_quantizer.set_active_quantization_config_index(index)
 
     def get_weights_and_quantizers(self, layer: Layer) -> List[Tuple[Tensor, Any]]:
         """
@@ -176,32 +176,26 @@ class SelectiveQuantizeConfig(QuantizeConfig):
             quantize_weights: Quantized weights to set as new weights.
 
         """
-        if not self.enable_weights_quantization:
-            return
+        if self.enable_weights_quantization:
+            if len(self.weight_attrs) != len(quantize_weights):
+                raise ValueError(
+                    '`set_quantize_weights` called on layer {} with {} '
+                    'weight parameters, but layer expects {} values.'.format(
+                        layer.name, len(quantize_weights), len(self.weight_attrs)))
 
-        if len(self.weight_attrs) != len(quantize_weights):
-            raise ValueError(
-                '`set_quantize_weights` called on layer {} with {} '
-                'weight parameters, but layer expects {} values.'.format(
-                    layer.name, len(quantize_weights), len(self.weight_attrs)))
+            for weight_attr, weight in zip(self.weight_attrs, quantize_weights):
+                current_weight = getattr(layer, weight_attr)
+                if current_weight.shape != weight.shape:
+                    raise ValueError('Existing layer weight shape {} is incompatible with'
+                                     'provided weight shape {}'.format(
+                        current_weight.shape, weight.shape))
 
-        for weight_attr, weight in zip(self.weight_attrs, quantize_weights):
-            current_weight = getattr(layer, weight_attr)
-            if current_weight.shape != weight.shape:
-                raise ValueError('Existing layer weight shape {} is incompatible with'
-                                 'provided weight shape {}'.format(
-                    current_weight.shape, weight.shape))
-
-            setattr(layer, weight_attr, weight)
+                setattr(layer, weight_attr, weight)
 
     def set_quantize_activations(self, layer, quantize_activations: ListWrapper):
-        # assert len(quantize_activations) == 1, f"Number of quantized activations is {len(quantize_activations)}, " \
-        #                                        f"expected 1."
-        # layer.activation = quantize_activations[0]
         pass
 
     def get_output_quantizers(self, layer: Layer) -> list:
-        # return self.activation_selective_quantizer.activation_quantizers
         return [] if not self.enable_activation_quantization else [self.activation_selective_quantizer]
 
     def get_config(self) -> Dict[str, Any]:

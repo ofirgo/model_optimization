@@ -47,15 +47,6 @@ class SelectiveWeightsQuantizer(Quantizer):
                 use this quantizer.
             float_weight: Float weights of the layer.
         """
-
-        # Make sure the candidates configurations arrived in a descending order.
-        curmax = (np.inf, np.inf)
-        n_candidate_bits = [(x.weights_quantization_cfg.weights_n_bits, x.activation_quantization_cfg.activation_n_bits)
-                            for x in node_q_cfg]
-        for candidate_bits in n_candidate_bits:
-            assert candidate_bits < curmax
-            curmax = candidate_bits
-
         self.node_q_cfg = node_q_cfg
 
         # Use the node's quantizer. The SelectiveWeightsQuantizer is supported only if
