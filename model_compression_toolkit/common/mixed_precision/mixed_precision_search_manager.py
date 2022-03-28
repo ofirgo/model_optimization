@@ -115,13 +115,10 @@ class MixedPrecisionSearchManager(object):
                     node_nbits = (node_qc.weights_quantization_cfg.weights_n_bits,
                                   node_qc.activation_quantization_cfg.activation_n_bits)
                 elif n.is_weights_quantization_enabled():
-                    # TODO: modify to account for activations mp -
-                    #  not enough to add "or n.is_activation_quantization_enabled()" to if because it fails if we only
-                    #  in weights mp but activation regularly quantized
-                    #  maybe add to configuration a flag to indicate is_weights_mp and is_activation_mp (or use all_activation_equal or something)
                     # The only valid way to get here is if the node is reused (which means that we're not looking
                     # for its configuration), and we ignore it when computing the KPI (as the base node will acount
                     # for it).
+                    # in activations - if we sum all inputs as a metric then we don't want to skip reused nodes.
                     assert n.reuse, "If node has candidates it should be part of the configurable nodes," \
                                     " unless it's a reused node"
                     node_nbits = (0, 0)  # Ignore reused nodes is the KPI computation.

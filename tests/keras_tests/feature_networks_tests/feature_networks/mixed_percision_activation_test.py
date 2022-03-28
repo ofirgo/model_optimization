@@ -207,3 +207,49 @@ class MixedPrecisionActivationDepthwiseTest(MixedPrecisionActivationBaseTest):
         cs = cosine_similarity(y, y_hat)
         # quantifying both weights and activation so similarity is approximately within error range of 1e-4
         self.unit_test.assertTrue(np.isclose(cs, 1, rtol=1e-4), msg=f'fail cosine similarity check:{cs}')
+
+
+class MixedPrecisionActivationSplitLayerTest(MixedPrecisionActivationBaseTest):
+    def __init__(self, unit_test):
+        super().__init__(unit_test)
+
+    def create_networks(self):
+        inputs = layers.Input(shape=self.get_input_shapes()[0][1:])
+        x = tf.split(inputs, num_or_size_splits=2, axis=1)
+        c0 = layers.Conv2D(30, 40)(x[0])
+        c1 = layers.Conv2D(30, 40)(x[1])
+        model = keras.Model(inputs=inputs, outputs=[c0, c1])
+        return model
+
+    def get_kpi(self):
+        # kpi is infinity -> should give best model - 8bits on all layers for both weights and activations
+        return KPI(np.inf, np.inf)
+
+    def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
+        weights_bits, activation_bits = self.get_split_candidates(mp_config=quantization_info.mixed_precision_cfg,
+                                                                  weights_layers_idx=[1, 2],
+                                                                  activation_layers_idx=[0, 1, 3])
+
+        # kpi is infinity -> should give best model - 8bits
+        # only layers 0, 1, 3 in the test model have activations that need to be quantized
+        self.unit_test.assertTrue((activation_bits == [8, 8, 8]))
+        # only layers 1, 2 in the test model have weights that need to be quantized
+        self.unit_test.assertTrue((weights_bits == [8, 8]))
+
+        # verify weights quantization
+        for i in range(30):  # quantized per channel
+            self.unit_test.assertTrue(
+                np.unique(quantized_model.layers[2].weights[0][:, :, :, i]).flatten().shape[0] <= 256)
+        for i in range(50):  # quantized per channel
+            self.unit_test.assertTrue(
+                np.unique(quantized_model.layers[4].weights[0][:, :, :, i]).flatten().shape[0] <= 256)
+
+        # verify activation quantization
+        inp = quantized_model.input  # input placeholder
+        out = [layer.output for layer in quantized_model.layers]  # all layer outputs
+        get_outputs = K.function([inp], out)
+        layer_outs = get_outputs([input_x])
+        # verifying fake quant nodes output
+        self.unit_test.assertTrue(np.unique(layer_outs[1].flatten()).shape[0] <= 256)
+        self.unit_test.assertTrue(np.unique(layer_outs[3].flatten()).shape[0] <= 256)
+        self.unit_test.assertTrue(np.unique(layer_outs[6].flatten()).shape[0] <= 256)

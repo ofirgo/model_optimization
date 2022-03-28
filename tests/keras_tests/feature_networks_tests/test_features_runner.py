@@ -20,7 +20,8 @@ from tests.keras_tests.feature_networks_tests.feature_networks.activation_relu_b
     ReLUBoundToPOTNetTest
 from tests.keras_tests.feature_networks_tests.feature_networks.mixed_percision_activation_test import \
     MixedPrecisionActivationSearchTest, MixedPrecisionActivationSearchKPI4BitsAvgTest, \
-    MixedPrecisionActivationSearchKPI2BitsAvgTest, MixedPrecisionActivationDepthwiseTest
+    MixedPrecisionActivationSearchKPI2BitsAvgTest, MixedPrecisionActivationDepthwiseTest, \
+    MixedPrecisionActivationSplitLayerTest
 from tests.keras_tests.feature_networks_tests.feature_networks.mixed_percision_test import MixedPercisionBaseTest, \
     MixedPercisionSearchTest, MixedPercisionManuallyConfiguredTest, MixedPercisionDepthwiseTest, \
     MixedPercisionSearchKPI4BitsAvgTest, MixedPercisionSearchKPI2BitsAvgTest
@@ -104,6 +105,9 @@ class FeatureNetworkTest(unittest.TestCase):
     def test_mixed_precision_search(self):
         MixedPercisionSearchTest(self).run_test()
 
+    def test_mixed_precision_dw(self):
+        MixedPercisionDepthwiseTest(self).run_test()
+
     def test_mixed_precision_activation_search(self):
         MixedPrecisionActivationSearchTest(self).run_test()
 
@@ -113,11 +117,11 @@ class FeatureNetworkTest(unittest.TestCase):
     def test_mixed_precision_activation_search_kpi_2bits_avg(self):
         MixedPrecisionActivationSearchKPI2BitsAvgTest(self).run_test()
 
-    def test_mixed_precision_dw(self):
-        MixedPercisionDepthwiseTest(self).run_test()
-
     def test_mixed_precision_activation_dw(self):
         MixedPrecisionActivationDepthwiseTest(self).run_test()
+
+    def test_mixed_precision_activation_split(self):
+        MixedPrecisionActivationSplitLayerTest(self).run_test()
 
     def test_name_filter(self):
         NameFilterTest(self).run_test()
