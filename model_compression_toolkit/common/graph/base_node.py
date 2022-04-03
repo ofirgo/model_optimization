@@ -36,7 +36,8 @@ class BaseNode:
                  layer_class: type,
                  reuse: bool = False,
                  reuse_group: str = None,
-                 quantization_attr: Dict[str, Any] = None):
+                 quantization_attr: Dict[str, Any] = None,
+                 has_activation: bool = True):
         """
         Init a Node object.
 
@@ -50,6 +51,7 @@ class BaseNode:
             reuse: Whether this node was duplicated and represents a reused layer.
             reuse_group: Name of group of nodes from the same reused layer.
             quantization_attr: Attributes the node holds regarding how it should be quantized.
+            has_activation: Whether the node has activations that we might want to quantize.
         """
         self.name = name
         self.framework_attr = framework_attr
@@ -64,6 +66,7 @@ class BaseNode:
         self.final_activation_quantization_cfg = None
         self.candidates_quantization_cfg = None
         self.prior_info = None
+        self.has_activation = has_activation
 
     @property
     def type(self):
@@ -256,4 +259,19 @@ class BaseNode:
         return all(candidate.weights_quantization_cfg ==
                    self.candidates_quantization_cfg[0].weights_quantization_cfg
                    for candidate in self.candidates_quantization_cfg)
+
+    def has_weights_to_quantize(self, fw_info):
+        """
+        Checks whether the node has weights that need to be quantized according to the framework info.
+        Args:
+            fw_info: FrameworkInfo object about the specific framework (e.g., attributes of different layers' weights to quantize).
+
+        Returns: Whether the node has weights that need to be quantized.
+
+        """
+        attrs = fw_info.get_kernel_op_attributes(self.type)
+        for attr in attrs:
+            if attr and self.get_weights_by_keys(attr) is not None:
+                return True
+        return False
 

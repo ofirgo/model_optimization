@@ -18,6 +18,8 @@ from torch.nn import Conv2d
 
 from model_compression_toolkit import MixedPrecisionQuantizationConfig, KPI
 from model_compression_toolkit.common.user_info import UserInformation
+from model_compression_toolkit.hardware_models.default_hwm import generate_default_hardware_model
+from model_compression_toolkit.hardware_models.pytorch_hardware_model.pytorch_default import generate_fhw_model_pytorch
 from tests.pytorch_tests.model_tests.base_pytorch_test import BasePytorchTest
 import model_compression_toolkit as mct
 
@@ -30,18 +32,19 @@ class MixedPercisionBaseTest(BasePytorchTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
 
-    def get_quantization_configs(self):
-        qc = mct.QuantizationConfig(mct.QuantizationErrorMethod.MSE,
-                                    mct.QuantizationErrorMethod.MSE,
-                                    weights_bias_correction=True,
-                                    weights_per_channel_threshold=True,
-                                    activation_channel_equalization=False,
-                                    relu_bound_to_power_of_2=False,
-                                    input_scaling=False)
+    def get_fw_hw_model(self):
+        return {
+            'mixed_precision_model': generate_fhw_model_pytorch(name="mixed_precision_pytorch_test",
+                                                                hardware_model=generate_default_hardware_model()),
+        }
 
-        return {"mixed_precision_model": MixedPrecisionQuantizationConfig(qc,
-                                                                          n_bits_candidates=[(2, 8), (8, 8), (4, 8)],
-                                                                          num_of_images=1)}
+    def get_quantization_configs(self):
+        qc = mct.QuantizationConfig(mct.QuantizationErrorMethod.MSE, mct.QuantizationErrorMethod.MSE,
+                                    relu_bound_to_power_of_2=False, weights_bias_correction=True,
+                                    weights_per_channel_threshold=True, input_scaling=False,
+                                    activation_channel_equalization=False)
+
+        return {"mixed_precision_model": MixedPrecisionQuantizationConfig(qc, num_of_images=1)}
 
     def create_feature_network(self, input_shape):
         return MixedPrecisionNet(input_shape)

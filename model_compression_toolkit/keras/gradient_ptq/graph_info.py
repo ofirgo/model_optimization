@@ -14,7 +14,6 @@
 # ==============================================================================
 
 
-import numpy as np
 import tensorflow as tf
 from tensorflow_model_optimization.python.core.quantization.keras.quantize_wrapper import QuantizeWrapper
 from typing import Tuple, List
@@ -27,23 +26,31 @@ from model_compression_toolkit.common.framework_info import FrameworkInfo
 from tensorflow.keras.models import Model
 
 
-def get_compare_points(input_graph: Graph) -> Tuple[List[BaseNode], List[str]]:
+def get_compare_points(input_graph: Graph) -> Tuple[List[BaseNode], List[str], List, List]:
     """
     Create a list of nodes with weights in a graph and a corresponding list
-    of their names for tensors comparison purposes.
+    of their names for tensors comparison purposes. Also outputs 2 list of activations
+    prior information collected from batch normalization nodes (if exists)
     Args:
         input_graph: Graph to get its points to compare.
 
     Returns:
-        A list of nodes in a graph, and a list of the their names.
+        A list of nodes in a graph
+        A list of the their names.
+        A list of nodes mean collected from BatchNorms in the graph
+        A list of nodes std collected from BatchNorms in the graph
     """
     compare_points = []
+    compare_points_mean = []
+    compare_points_std = []
     compare_points_name = []
     for n in input_graph.get_topo_sorted_nodes():
         if len(n.weights) > 0:
             compare_points.append(n)
             compare_points_name.append(n.name)
-    return compare_points, compare_points_name
+            compare_points_std.append(n.prior_info.std_output)
+            compare_points_mean.append(n.prior_info.mean_output)
+    return compare_points, compare_points_name, compare_points_mean, compare_points_std
 
 
 def get_trainable_parameters(fxp_model: Model,
@@ -68,7 +75,9 @@ def get_trainable_parameters(fxp_model: Model,
             # collect trainable weights per layer
             layer_trainable_weights = layer.quantize_config.get_trainable_quantizer_parameters()
             if add_bias:
-                use_bias = isinstance(layer.layer, tuple(fw_info.kernel_ops)) and layer.layer.get_config().get(USE_BIAS)
+                kernel_ops_attrs = fw_info.kernel_ops_attributes_mapping.get(type(layer.layer))
+                use_bias = kernel_ops_attrs is not None and kernel_ops_attrs[0] is not None \
+                           and layer.layer.get_config().get(USE_BIAS)
                 if use_bias is not None and use_bias:
                     layer_trainable_weights.append(layer.layer.bias)
             trainable_weights.append(layer_trainable_weights)
