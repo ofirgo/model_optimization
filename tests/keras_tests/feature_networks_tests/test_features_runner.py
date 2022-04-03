@@ -71,6 +71,9 @@ from tests.keras_tests.feature_networks_tests.feature_networks.symmetric_thresho
     SymmetricThresholdSelectionActivationTest
 from tests.keras_tests.feature_networks_tests.feature_networks.uniform_range_selection_activation_test import \
     UniformRangeSelectionActivationTest
+from tests.keras_tests.feature_networks_tests.mixed_percision_activation_test import MixedPrecisionActivationSearchTest, \
+    MixedPrecisionActivationSearchKPI4BitsAvgTest, MixedPrecisionActivationSearchKPI2BitsAvgTest, \
+    MixedPrecisionActivationDepthwiseTest, MixedPrecisionActivationSplitLayerTest
 
 layers = tf.keras.layers
 
@@ -103,6 +106,21 @@ class FeatureNetworkTest(unittest.TestCase):
 
     def test_mixed_precision_dw(self):
         MixedPercisionDepthwiseTest(self).run_test()
+
+    def test_mixed_precision_activation_search(self):
+        MixedPrecisionActivationSearchTest(self).run_test()
+
+    def test_mixed_precision_activation_search_kpi_4bits_avg(self):
+        MixedPrecisionActivationSearchKPI4BitsAvgTest(self).run_test()
+
+    def test_mixed_precision_activation_search_kpi_2bits_avg(self):
+        MixedPrecisionActivationSearchKPI2BitsAvgTest(self).run_test()
+
+    def test_mixed_precision_activation_dw(self):
+        MixedPrecisionActivationDepthwiseTest(self).run_test()
+
+    def test_mixed_precision_activation_split(self):
+        MixedPrecisionActivationSplitLayerTest(self).run_test()
 
     def test_name_filter(self):
         NameFilterTest(self).run_test()

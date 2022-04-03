@@ -41,7 +41,7 @@ from model_compression_toolkit.keras.keras_implementation import KerasImplementa
 
 class TestLpSearchBitwidth(unittest.TestCase):
 
-    def test_search(self):
+    def test_search_weights_only(self):
         target_kpi = KPI(2)
         layer_to_kpi_mapping = {0: {2: KPI(1),
                                     1: KPI(2),
@@ -66,6 +66,64 @@ class TestLpSearchBitwidth(unittest.TestCase):
                                                 lambda x, y: 0,
                                                 lambda x: layer_to_kpi_mapping[0][x[0]],
                                                 KPI(np.inf))
+
+        self.assertTrue(len(bit_cfg) == 1)
+        self.assertTrue(bit_cfg[0] == 2)
+
+    def test_search_activation_only(self):
+        target_kpi = KPI(activation_memory=2)
+        layer_to_kpi_mapping = {0: {2: KPI(activation_memory=1),
+                                    1: KPI(activation_memory=2),
+                                    0: KPI(activation_memory=3)}}
+
+        bit_cfg = mp_integer_programming_search({0: [0, 1, 2]},
+                                                lambda x, y: 0,
+                                                lambda x: layer_to_kpi_mapping[0][x[0]],
+                                                target_kpi)
+
+        self.assertTrue(len(bit_cfg) == 1)
+        self.assertTrue(bit_cfg[0] == 1)
+
+        target_kpi = KPI(activation_memory=0)  # Infeasible solution!
+        with self.assertRaises(Exception):
+            bit_cfg = mp_integer_programming_search({0: [0, 1, 2]},
+                                                    lambda x, y: 0,
+                                                    lambda x: layer_to_kpi_mapping[0][x[0]],
+                                                    target_kpi)
+
+        bit_cfg = mp_integer_programming_search({0: [0, 1, 2]},
+                                                lambda x, y: 0,
+                                                lambda x: layer_to_kpi_mapping[0][x[0]],
+                                                KPI(activation_memory=np.inf))
+
+        self.assertTrue(len(bit_cfg) == 1)
+        self.assertTrue(bit_cfg[0] == 2)
+
+    def test_search_weights_and_activation(self):
+        target_kpi = KPI(weights_memory=2, activation_memory=2)
+        layer_to_kpi_mapping = {0: {2: KPI(weights_memory=1, activation_memory=1),
+                                    1: KPI(weights_memory=2, activation_memory=2),
+                                    0: KPI(weights_memory=3, activation_memory=3)}}
+
+        bit_cfg = mp_integer_programming_search({0: [0, 1, 2]},
+                                                lambda x, y: 0,
+                                                lambda x: layer_to_kpi_mapping[0][x[0]],
+                                                target_kpi)
+
+        self.assertTrue(len(bit_cfg) == 1)
+        self.assertTrue(bit_cfg[0] == 1)
+
+        target_kpi = KPI(weights_memory=0, activation_memory=0)  # Infeasible solution!
+        with self.assertRaises(Exception):
+            bit_cfg = mp_integer_programming_search({0: [0, 1, 2]},
+                                                    lambda x, y: 0,
+                                                    lambda x: layer_to_kpi_mapping[0][x[0]],
+                                                    target_kpi)
+
+        bit_cfg = mp_integer_programming_search({0: [0, 1, 2]},
+                                                lambda x, y: 0,
+                                                lambda x: layer_to_kpi_mapping[0][x[0]],
+                                                KPI(weights_memory=np.inf, activation_memory=np.inf))
 
         self.assertTrue(len(bit_cfg) == 1)
         self.assertTrue(bit_cfg[0] == 2)

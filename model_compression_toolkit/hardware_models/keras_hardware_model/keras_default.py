@@ -14,6 +14,7 @@
 # ==============================================================================
 
 import tensorflow as tf
+from keras.engine.input_layer import InputLayer
 
 from model_compression_toolkit.common.hardware_representation import HardwareModel
 
@@ -88,4 +89,6 @@ def generate_fhw_model_keras(name: str, hardware_model: HardwareModel):
 
         hwm.OperationsSetToLayers("Tanh", [tf.nn.tanh,
                                            hwm.LayerFilterParams(Activation, activation="tanh")])
+
+        hwm.OperationsSetToLayers("Input", [InputLayer])
     return fhwm_keras

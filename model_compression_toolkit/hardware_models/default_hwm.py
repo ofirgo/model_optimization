@@ -104,6 +104,8 @@ def generate_default_hardware_model(activation_quantization_method=hwm.Quantizat
         sigmoid = hwm.OperatorsSet("Sigmoid")
         tanh = hwm.OperatorsSet("Tanh")
 
+        input = hwm.OperatorsSet("Input")
+
         # Combine multiple operators into a single operator to avoid quantization between
         # them. To do this we define fusing patterns using the OperatorsSets that were created.
         # To group multiple sets with regard to fusing, an OperatorSetConcat can be created
