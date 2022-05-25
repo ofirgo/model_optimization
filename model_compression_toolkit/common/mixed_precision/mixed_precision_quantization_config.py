@@ -24,7 +24,7 @@ from model_compression_toolkit.common.similarity_analyzer import compute_mse
 class MixedPrecisionQuantizationConfigV2:
 
     def __init__(self,
-                 compute_distance_fn: Callable = compute_mse,
+                 compute_distance_fn: Callable = None,
                  distance_weighting_method: Callable = get_average_weights,
                  num_of_images: int = 32,
                  configuration_overwrite: List[int] = None,
@@ -59,7 +59,7 @@ class MixedPrecisionQuantizationConfig(QuantizationConfig):
 
     def __init__(self,
                  qc: QuantizationConfig = DEFAULTCONFIG,
-                 compute_distance_fn: Callable = compute_mse,
+                 compute_distance_fn: Callable = None,
                  distance_weighting_method: Callable = get_average_weights,
                  num_of_images: int = 32,
                  configuration_overwrite: List[int] = None,
