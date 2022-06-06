@@ -68,8 +68,10 @@ def get_op_quantization_configs() -> Tuple[OpQuantizationConfig, List[OpQuantiza
     # In this example, we quantize some operations' weights
     # using 2, 4 or 8 bits, and when using 2 or 4 bits, it's possible
     # to quantize the operations' activations using LUT.
-    four_bits = eight_bits.clone_and_edit(weights_n_bits=4)
-    two_bits = eight_bits.clone_and_edit(weights_n_bits=2)
+    four_bits = eight_bits.clone_and_edit(weights_n_bits=4,
+                                          weights_quantization_method=tpc.QuantizationMethod.LUT_QUANTIZER)
+    two_bits = eight_bits.clone_and_edit(weights_n_bits=2,
+                                         weights_quantization_method=tpc.QuantizationMethod.LUT_QUANTIZER)
     mixed_precision_cfg_list = [eight_bits, four_bits, two_bits]
 
     return eight_bits, mixed_precision_cfg_list
