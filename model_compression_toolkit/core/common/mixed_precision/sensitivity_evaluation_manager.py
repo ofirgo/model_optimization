@@ -60,7 +60,9 @@ class SensitivityEvaluationManager:
         self.images_batches = get_images_batches(quant_config.num_of_images, representative_data_gen)
 
         # Get baseline model inference on all samples
-        self.baseline_tensors_list = []  # setting from outside scope
+        self.baseline_tensors_list = []  # setting from outside
+
+        metrics_weights_fn = self.quant_config.distance_weighting_method
 
     def init_baseline_tensors_list(self):
         """
@@ -69,6 +71,20 @@ class SensitivityEvaluationManager:
         """
         self.baseline_tensors_list = [_tensors_as_list(self.fw_impl.to_numpy(self.baseline_model(images)))
                                       for images in self.images_batches]
+
+    def init_weights_metric_avg(self, distance_weighting_method):
+        # assert len(self.baseline_tensors_list) > 0, \
+        #     "Can't calculate weights for metric average before initiating baseline model's tensors"
+
+        if distance_weighting_method is None:
+            # In this case, the weights function is the default function passed in quant_config
+            return
+        else:
+            for images in self.images_batches:
+                # TODO: duplicate computation of baseline model on the images, consider computing the metric weights in the baseline tensor initialization (with a flag)
+                x = distance_weighting_method(self.baseline_model, images, self.interest_points)
+
+            # self.metrics_weights_fn =
 
     def compute_distance_matrix(self,
                                 baseline_tensors: List[Any],
@@ -96,7 +112,7 @@ class SensitivityEvaluationManager:
                                                   compute_distance_fn=self.quant_config.compute_distance_fn)
             for j in range(num_samples):
                 distance_matrix[i, j] = \
-                    point_distance_fn(baseline_tensors[i][j], mp_tensors[i][j], i)
+                    point_distance_fn(baseline_tensors[i][j], mp_tensors[i][j])
         return distance_matrix
 
     def build_distance_metrix(self):

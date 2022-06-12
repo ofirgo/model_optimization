@@ -35,7 +35,8 @@ class SensitivityEvaluation:
                  fw_info: FrameworkInfo,
                  fw_impl: Any,
                  set_layer_to_bitwidth: Callable,
-                 get_quant_node_name: Callable):
+                 get_quant_node_name: Callable,
+                 distance_weighting_method: Callable = None):
         """
             Create an object that allows to compute the sensitivity metric of an MP model (the sensitivity
             is computed based on the similarity of the interest points' outputs between the MP model
@@ -81,6 +82,9 @@ class SensitivityEvaluation:
         # Initiating baseline_tensors_list since it is not initiated in SensitivityEvaluationManager init.
         self.sem.init_baseline_tensors_list()
 
+        # Initiating weights for metric average
+        self.sem.init_weights_metric_avg(distance_weighting_method)
+
     def compute_metric(self,
                        mp_model_configuration: List[int],
                        node_idx: List[int] = None,
@@ -116,7 +120,8 @@ class SensitivityEvaluation:
                                             baseline_mp_configuration,
                                             node_idx)
 
-        return compute_mp_distance_measure(distance_matrix, self.quant_config.distance_weighting_method)
+        # return compute_mp_distance_measure(distance_matrix, self.quant_config.distance_weighting_method)
+        return compute_mp_distance_measure(distance_matrix)
 
     def _configure_bitwidths_model(self,
                                    model_mp: Any,

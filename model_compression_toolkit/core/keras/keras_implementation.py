@@ -9,6 +9,7 @@ from tensorflow.keras.models import Model
 from tensorflow.python.layers.base import Layer
 
 from model_compression_toolkit.core.common.similarity_analyzer import compute_kl_divergence, compute_cs, compute_mse
+from model_compression_toolkit.core.keras.mixed_precision.distance_metric_jac import distance_metric_jac
 from model_compression_toolkit.core.keras.mixed_precision.set_layer_to_bitwidth import set_layer_to_bitwidth
 
 if tf.__version__ < "2.6":
@@ -310,7 +311,8 @@ class KerasImplementation(FrameworkImplementation):
                                      fw_info=fw_info,
                                      fw_impl=self,
                                      set_layer_to_bitwidth=set_layer_to_bitwidth,
-                                     get_quant_node_name=lambda node_name: f'quant_{node_name}')
+                                     get_quant_node_name=lambda node_name: f'quant_{node_name}',
+                                     distance_weighting_method=distance_metric_jac)
 
     def get_node_prior_info(self,
                             node: BaseNode,
@@ -376,7 +378,7 @@ class KerasImplementation(FrameworkImplementation):
             return compute_kl_divergence
         elif layer_class == Dense:
             return compute_cs
-        return lambda x, y: compute_mse(x, y, norm=True, norm_eps=1e-8)
+        return lambda x, y: compute_mse(x, y, norm=False, norm_eps=1e-8)
 
     def get_model_layers_names(self,
                                model: Model) -> List[str]:
