@@ -81,3 +81,11 @@ def get_correlation_to_last_weights(distance_matrix: np.ndarray):
 
     return _softmax(correlation_to_last_layer)
 
+
+def get_relative_weights(distance_matrix: np.ndarray):
+    def _softmax(x):
+        e_x = np.exp(x - np.max(x))
+        return e_x / e_x.sum(axis=0)
+
+    num_nodes = len(distance_matrix)
+    return _softmax(np.array(list(range(num_nodes))) / num_nodes)

@@ -16,7 +16,8 @@
 from enum import Enum
 from typing import List, Callable, Tuple
 
-from model_compression_toolkit.core.common.mixed_precision.distance_weighting import get_average_weights
+from model_compression_toolkit.core.common.mixed_precision.distance_weighting import get_average_weights, \
+    get_relative_weights
 from model_compression_toolkit.core.common.quantization.quantization_config import QuantizationConfig, DEFAULTCONFIG
 from model_compression_toolkit.core.common.similarity_analyzer import compute_mse
 
@@ -26,6 +27,7 @@ class MixedPrecisionQuantizationConfigV2:
     def __init__(self,
                  compute_distance_fn: Callable = compute_mse,
                  distance_weighting_method: Callable = get_average_weights,
+                 # distance_weighting_method: Callable = get_relative_weights,
                  num_of_images: int = 32,
                  configuration_overwrite: List[int] = None,
                  num_interest_points_factor: float = 1.0):
