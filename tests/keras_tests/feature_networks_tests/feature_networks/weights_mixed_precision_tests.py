@@ -37,6 +37,7 @@ tp = mct.target_platform
 class MixedPercisionBaseTest(BaseKerasFeatureNetworkTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
+        self.val_batch_size = 2
 
     def get_quantization_config(self):
         qc = mct.QuantizationConfig(mct.QuantizationErrorMethod.MSE,
@@ -47,7 +48,7 @@ class MixedPercisionBaseTest(BaseKerasFeatureNetworkTest):
                                     input_scaling=True,
                                     activation_channel_equalization=True)
 
-        return MixedPrecisionQuantizationConfig(qc, num_of_images=1)
+        return MixedPrecisionQuantizationConfig(qc, num_of_images=10)
 
     def get_input_shapes(self):
         return [[self.val_batch_size, 224, 244, 3]]
