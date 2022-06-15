@@ -18,6 +18,13 @@ from functools import partial
 import numpy as np
 
 
+class CorrelationMeasure(Enum):
+    LINEAR_CKA_FEATURES = "LINEAR_CKA_FEATURES",
+    LINEAR_CKA_EXAMLES = "LINEAR_CKA_EXAMLES",
+    RBF_CKA = "RBF_CKA",
+    CCA_CORR = "CCA_CORR",
+
+
 def _flatten_tensor_features(t: np.ndarray) -> np.ndarray:
     return np.reshape(t, newshape=(t.shape[0], -1))
 
@@ -29,10 +36,10 @@ def _center_tensor_features(t: np.ndarray) -> np.ndarray:
 def _center_tensor_examples(t: np.ndarray) -> np.ndarray:
     if not np.allclose(t, t.T):
         raise ValueError('Input must be a symmetric matrix.')
-    _t = t.copy()
+    _t = t.copy().astype(np.float64)
 
     # TODO: working according to biased estimate of HSIC
-    means = np.mean(_t, axis=0)
+    means = np.mean(_t, axis=0) # dtype=np.float64
     means -= np.mean(means) / 2
     _t -= means[:, None]  # means as column vector
     _t -= means[None, :]  # means as row vector
@@ -114,13 +121,3 @@ def cca_corr(x: np.ndarray, y: np.ndarray) -> float:
 
     # TODO: do we need to center the tensors?
     return np.linalg.norm(qx.T.dot(qy)) ** 2 / min(x_r.shape[1], y_r.shape[1])
-
-
-class CorrelationMeasures(Enum):
-    LINEAR_CKA_FEATURES = partial(linear_cka_corr_from_features),
-    LINEAR_CKA_EXAMLES = partial(linear_cka_corr_from_examples),
-    RBF_CKA = partial(rbf_cka_corr),
-    CCA_CORR = partial(cca_corr),
-
-    def __call__(self, *args):
-        return self.value(*args)

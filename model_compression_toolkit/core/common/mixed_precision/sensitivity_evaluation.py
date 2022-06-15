@@ -18,7 +18,7 @@ from typing import Callable, Any, List
 from model_compression_toolkit import FrameworkInfo, MixedPrecisionQuantizationConfigV2
 from model_compression_toolkit.core.common import Graph, BaseNode
 from model_compression_toolkit.core.common.mixed_precision.correlation_measures import \
-    linear_cka_corr_from_features, linear_cka_corr_from_examples
+     linear_cka_corr_from_examples
 from model_compression_toolkit.core.common.model_builder_mode import ModelBuilderMode
 from model_compression_toolkit.core.common import Logger
 
@@ -90,14 +90,13 @@ class SensitivityEvaluation:
         # Initiating baseline_tensors_list since it is not initiated in SensitivityEvaluationManager init.
         self._init_baseline_tensors_list()
 
-        self.interest_points_corr_to_output = self.compute_ip_corr(linear_cka_corr_from_examples)
-        # if self.quant_config.activation_corr_method is not None:
+        if self.quant_config.distance_corr_method is not None:
             # Compute the interest points correlation to output and set the distance weighting function to use the
             # computed correlation as weights in distance matrix average.
-        #   self.interest_points_corr_to_output = self.compute_ip_corr(self.quant_config.activation_corr_method)
-        #   self.quant_config.distance_weighting_method = lambda d: self.interest_points_corr_to_output
-        # else:
-        #   self.interest_points_corr_to_output = None
+            self.interest_points_corr_to_output = self.compute_ip_corr(self.quant_config.distance_corr_method)
+            self.quant_config.distance_weighting_method = lambda d: self.interest_points_corr_to_output
+        else:
+            self.interest_points_corr_to_output = None
 
     def compute_ip_corr(self, corr_measure: Callable):
         # TODO: we assume here a single output and that the last interest point is the output layer of the model
@@ -110,7 +109,6 @@ class SensitivityEvaluation:
 
         ip_avg_corr = np.mean(ip_corr_per_batch, axis=0)
         return ip_avg_corr
-
 
     def compute_metric(self,
                        mp_model_configuration: List[int],
@@ -147,8 +145,7 @@ class SensitivityEvaluation:
                                             baseline_mp_configuration,
                                             node_idx)
 
-        # return self._compute_mp_distance_measure(distance_matrix, self.quant_config.distance_weighting_method)
-        return self._compute_mp_distance_measure(distance_matrix, lambda d: self.interest_points_corr_to_output)
+        return self._compute_mp_distance_measure(distance_matrix, self.quant_config.distance_weighting_method)
 
     def _init_baseline_tensors_list(self):
         """

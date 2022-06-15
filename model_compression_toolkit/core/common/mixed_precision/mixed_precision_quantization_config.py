@@ -16,7 +16,8 @@
 from enum import Enum
 from typing import List, Callable, Tuple
 
-from model_compression_toolkit.core.common.mixed_precision.correlation_measures import CorrelationMeasures
+from model_compression_toolkit.core.common.mixed_precision.correlation_measures import CorrelationMeasure, \
+    linear_cka_corr_from_features, linear_cka_corr_from_examples, rbf_cka_corr, cca_corr
 from model_compression_toolkit.core.common.mixed_precision.distance_weighting import get_average_weights
 from model_compression_toolkit.core.common.quantization.quantization_config import QuantizationConfig, DEFAULTCONFIG
 from model_compression_toolkit.core.common.similarity_analyzer import compute_mse
@@ -30,7 +31,7 @@ class MixedPrecisionQuantizationConfigV2:
                  num_of_images: int = 32,
                  configuration_overwrite: List[int] = None,
                  num_interest_points_factor: float = 1.0,
-                 activation_corr_method: CorrelationMeasures = None):
+                 distance_corr_method: CorrelationMeasure = None):
         """
         Class with mixed precision parameters to quantize the input model.
         Unlike QuantizationConfig, number of bits for quantization is a list of possible bit widths to
@@ -49,12 +50,26 @@ class MixedPrecisionQuantizationConfigV2:
         self.distance_weighting_method = distance_weighting_method
         self.num_of_images = num_of_images
         self.configuration_overwrite = configuration_overwrite
+        self.distance_corr_method = self._get_distance_corr_method(distance_corr_method)
 
         assert 0.0 < num_interest_points_factor <= 1.0, "num_interest_points_factor should represent a percentage of " \
                                                         "the base set of interest points that are required to be " \
                                                         "used for mixed-precision metric evaluation, " \
                                                         "thus, it should be between 0 to 1"
         self.num_interest_points_factor = num_interest_points_factor
+
+    @staticmethod
+    def _get_distance_corr_method(distance_corr_method):
+        if distance_corr_method == CorrelationMeasure.LINEAR_CKA_FEATURES:
+            return linear_cka_corr_from_features
+        elif distance_corr_method == CorrelationMeasure.LINEAR_CKA_EXAMLES:
+            return linear_cka_corr_from_examples
+        elif distance_corr_method == CorrelationMeasure.RBF_CKA:
+            return rbf_cka_corr
+        elif distance_corr_method == CorrelationMeasure.CCA_CORR:
+            return cca_corr
+        else:
+            return None
 
 
 class MixedPrecisionQuantizationConfig(QuantizationConfig):
