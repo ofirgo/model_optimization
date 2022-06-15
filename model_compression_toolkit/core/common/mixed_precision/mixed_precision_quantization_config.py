@@ -62,7 +62,7 @@ class MixedPrecisionQuantizationConfigV2:
     def _get_distance_corr_method(distance_corr_method):
         if distance_corr_method == CorrelationMeasure.LINEAR_CKA_FEATURES:
             return linear_cka_corr_from_features
-        elif distance_corr_method == CorrelationMeasure.LINEAR_CKA_EXAMLES:
+        elif distance_corr_method == CorrelationMeasure.LINEAR_CKA_EXAMPLES:
             return linear_cka_corr_from_examples
         elif distance_corr_method == CorrelationMeasure.RBF_CKA:
             return rbf_cka_corr

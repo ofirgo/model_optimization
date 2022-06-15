@@ -20,7 +20,7 @@ import numpy as np
 
 class CorrelationMeasure(Enum):
     LINEAR_CKA_FEATURES = "LINEAR_CKA_FEATURES",
-    LINEAR_CKA_EXAMLES = "LINEAR_CKA_EXAMLES",
+    LINEAR_CKA_EXAMPLES = "LINEAR_CKA_EXAMPLES",
     RBF_CKA = "RBF_CKA",
     CCA_CORR = "CCA_CORR",
 
