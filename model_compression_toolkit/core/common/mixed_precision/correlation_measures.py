@@ -46,6 +46,22 @@ def _center_tensor_examples(t: np.ndarray) -> np.ndarray:
     return _t
 
 
+def _center_tensor_examples_unbiased(t: np.ndarray) -> np.ndarray:
+    if not np.allclose(t, t.T):
+        raise ValueError('Input must be a symmetric matrix.')
+    _t = t.copy().astype(np.float64)
+
+    # TODO: working according to unbiased estimate of HSIC
+    n = _t.shape[0]
+    np.fill_diagonal(_t, 0)
+    means = np.sum(_t, 0, dtype=np.float64) / (n - 2)
+    means -= np.sum(means) / (2 * (n - 1))
+    _t -= means[:, None]
+    _t -= means[None, :]
+    np.fill_diagonal(_t, 0)
+    return _t
+
+
 def _get_rbf_examples_corr(x: np.ndarray, threshold: float = 0.8) -> np.ndarray:
     x_dot_products = x.dot(x.T)
     sq_norms = np.diag(x_dot_products)
@@ -58,6 +74,18 @@ def _cka(x_corr, y_corr):
     # Center the examples matrices
     x_corr_centered = _center_tensor_examples(x_corr)
     y_corr_centered = _center_tensor_examples(y_corr)
+
+    scaled_hsic = x_corr_centered.ravel().dot(y_corr_centered.ravel())
+
+    normalization_x = np.linalg.norm(x_corr_centered)
+    normalization_y = np.linalg.norm(y_corr_centered)
+    return scaled_hsic / (normalization_x * normalization_y)
+
+
+def _cka_unbiased(x_corr, y_corr):
+    # Center the examples matrices
+    x_corr_centered = _center_tensor_examples_unbiased(x_corr)
+    y_corr_centered = _center_tensor_examples_unbiased(y_corr)
 
     scaled_hsic = x_corr_centered.ravel().dot(y_corr_centered.ravel())
 
@@ -83,7 +111,7 @@ def linear_cka_corr_from_features(x: np.ndarray, y: np.ndarray) -> float:
     return dot_similarity / (x_norm * y_norm)
 
 
-def linear_cka_corr_from_examples(x: np.ndarray, y: np.ndarray) -> float:
+def linear_cka_corr_from_examples(x: np.ndarray, y: np.ndarray, unbiased: bool = False) -> float:
 
     # Flattening all tensors but the first axis (batch dimension)
     x_r = _flatten_tensor_features(x)
@@ -93,10 +121,12 @@ def linear_cka_corr_from_examples(x: np.ndarray, y: np.ndarray) -> float:
     x_corr = x_r.dot(x_r.T)
     y_corr = y_r.dot(y_r.T)
 
+    if unbiased:
+        return _cka_unbiased(x_corr, y_corr)
     return _cka(x_corr, y_corr)
 
 
-def rbf_cka_corr(x: np.ndarray, y: np.ndarray, threshold: float = 0.8) -> float:
+def rbf_cka_corr(x: np.ndarray, y: np.ndarray, threshold: float = 0.8, unbiased: bool = False) -> float:
 
     # Flattening all tensors but the first axis (batch dimension)
     x_r = _flatten_tensor_features(x)
@@ -106,6 +136,8 @@ def rbf_cka_corr(x: np.ndarray, y: np.ndarray, threshold: float = 0.8) -> float:
     x_corr = _get_rbf_examples_corr(x_r, threshold)
     y_corr = _get_rbf_examples_corr(y_r, threshold)
 
+    if unbiased:
+        return _cka_unbiased(x_corr, y_corr)
     return _cka(x_corr, y_corr)
 
 
@@ -116,8 +148,11 @@ def cca_corr(x: np.ndarray, y: np.ndarray) -> float:
     x_r = _flatten_tensor_features(x)
     y_r = _flatten_tensor_features(y)
 
-    qx, _ = np.linalg.qr(x_r)
-    qy, _ = np.linalg.qr(y_r)
+    # Centring the features across all samples
+    x_c = _center_tensor_features(x_r)
+    y_c = _center_tensor_features(y_r)
 
-    # TODO: do we need to center the tensors?
-    return np.linalg.norm(qx.T.dot(qy)) ** 2 / min(x_r.shape[1], y_r.shape[1])
+    qx, _ = np.linalg.qr(x_c)
+    qy, _ = np.linalg.qr(y_c)
+
+    return np.linalg.norm(qx.T.dot(qy)) ** 2 / min(x_c.shape[1], y_c.shape[1])

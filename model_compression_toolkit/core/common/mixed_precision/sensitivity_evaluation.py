@@ -94,6 +94,7 @@ class SensitivityEvaluation:
             # Compute the interest points correlation to output and set the distance weighting function to use the
             # computed correlation as weights in distance matrix average.
             self.interest_points_corr_to_output = self.compute_ip_corr(self.quant_config.distance_corr_method)
+            # self.quant_config.distance_weighting_method = lambda d: self.interest_points_corr_to_output ** 2  # use squared correlation as weights to increase their significance
             self.quant_config.distance_weighting_method = lambda d: self.interest_points_corr_to_output
         else:
             self.interest_points_corr_to_output = None
