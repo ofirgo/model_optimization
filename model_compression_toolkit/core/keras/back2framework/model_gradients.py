@@ -130,58 +130,247 @@ def keras_model_grad(graph_float: common.Graph,
     # for interest point p in interest_points:
     interest_points_tensors = []
     output_tensors = []
-    with tf.GradientTape(persistent=True) as g:
-        # Build a dictionary from node to its output tensors, by applying the layers sequentially.
-        for n in oh.node_sort:
-            op_func = oh.get_node_op_function(n)  # Get node operation function
+    with tf.GradientTape(persistent=True, watch_accessed_variables=False) as gg:
+        with tf.GradientTape(persistent=True, watch_accessed_variables=False) as g:
+            # Build a dictionary from node to its output tensors, by applying the layers sequentially.
+            for n in oh.node_sort:
+                op_func = oh.get_node_op_function(n)  # Get node operation function
 
-            input_tensors = build_input_tensors_list(n,
-                                                     graph_float,
-                                                     node_to_output_tensors_dict)  # Fetch Node inputs
-            out_tensors_of_n = run_operation(n,  # Run node operation and fetch outputs
-                                             input_tensors,
-                                             op_func,
-                                             input_nodes_to_input_tensors)
+                input_tensors = build_input_tensors_list(n,
+                                                         graph_float,
+                                                         node_to_output_tensors_dict)  # Fetch Node inputs
+                out_tensors_of_n = run_operation(n,  # Run node operation and fetch outputs
+                                                 input_tensors,
+                                                 op_func,
+                                                 input_nodes_to_input_tensors)
 
-            # Gradients can be computed only on float32 tensors
-            out_tensors_of_n = tf.dtypes.cast(out_tensors_of_n, tf.float32)
-            if n in interest_points:
-                # Recording the relevant feature maps onto the gradient tape
-                g.watch(out_tensors_of_n)
-                interest_points_tensors.append(out_tensors_of_n)
-            if n in output_list:
-                output_tensors.append(out_tensors_of_n)
+                # Gradients can be computed only on float32 tensors
+                out_tensors_of_n = tf.dtypes.cast(out_tensors_of_n, tf.float32)
+                if n in interest_points:
+                    # Recording the relevant feature maps onto the gradient tape
+                    gg.watch(out_tensors_of_n)
+                    g.watch(out_tensors_of_n)
+                    interest_points_tensors.append(out_tensors_of_n)
+                if n in output_list:
+                    output_tensors.append(out_tensors_of_n)
 
-            if isinstance(out_tensors_of_n, list):
-                node_to_output_tensors_dict.update({n: out_tensors_of_n})
-            else:
-                node_to_output_tensors_dict.update({n: [out_tensors_of_n]})
+                if isinstance(out_tensors_of_n, list):
+                    node_to_output_tensors_dict.update({n: out_tensors_of_n})
+                else:
+                    node_to_output_tensors_dict.update({n: [out_tensors_of_n]})
 
-        # Get a reduced loss value for derivatives computation
-        output_loss = 0
-        for output in output_tensors:
-            output = tf.reshape(output, shape=(output.shape[0], -1))
-            output_loss += tf.reduce_mean(tf.reduce_sum(output, axis=-1))
+            # Get a reduced loss value for derivatives computation
+            output_loss = 0
+            for output in output_tensors:
+                output = tf.reshape(output, shape=(output.shape[0], -1))
+                # output_loss += tf.reduce_mean(tf.reduce_sum(output, axis=-1))
+                output_loss += tf.reduce_mean(tf.reduce_sum(tf.pow(output, 2.0), axis=-1))
+        # End of inner GradientTape g
+
+        # ipt_grads = []
+        # ipt_grad_vectors = []
+        # ipt_random_vectors = []
+        hessian_trace_approx = []
+        for ipt in interest_points_tensors:
+            # grad_ipt = g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+            r_grad_ipt = tf.reshape(g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO),
+                                    shape=[ipt.shape[0], -1])
+
+            # r_grad_ipt = tf.reshape(grad_ipt, shape=[grad_ipt.shape[0], -1])
+            # ipt_grads.append(r_grad_ipt)
+            max_iter = 100
+
+            # grad_vectors = []
+            # random_vectors = []
+            trace_vhv = []
+            for j in range(max_iter):
+                # Generate random vector
+                # with gg.stop_recording():
+                #     v = tf.random.uniform(shape=r_grad_ipt.shape, minval=0, maxval=2, dtype=tf.int32)
+                #     mask = tf.where(v == 0)
+                #     v = tf.tensor_scatter_nd_update(v, mask, tf.fill(mask.shape[0], -1))
+                #     v = tf.dtypes.cast(v, tf.float32)
+                #     # random_vectors.append(v)
+                #
+                #     # Compute inner product with gradient
+                #     exp_v = tf.expand_dims(v, axis=2)
+                #     grad = tf.expand_dims(r_grad_ipt, axis=1)
+                # gg.watch(exp_v)
+                # gg.watch(grad)
+                v = tf.random.uniform(shape=r_grad_ipt.shape, minval=0, maxval=2, dtype=tf.int32)
+                with gg.stop_recording():
+                    mask = tf.where(v == 0)
+                v = tf.tensor_scatter_nd_update(v, mask, tf.fill(mask.shape[0], -1))
+                v = tf.dtypes.cast(v, tf.float32)
+                # random_vectors.append(v)
+
+                # Compute inner product with gradient
+                g_v = tf.matmul(tf.expand_dims(r_grad_ipt, axis=1), tf.expand_dims(v, axis=2))
+                # g_v = tf.reshape(g_v, [-1])
+                g_v_loss = tf.reduce_mean(g_v)
+
+                with gg.stop_recording():
+                    H_v = gg.gradient(g_v_loss, ipt)#, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+                    H_v = tf.reshape(H_v, shape=[H_v.shape[0], -1])
+                    trace_vhv.append(tf.reduce_mean(tf.matmul(tf.expand_dims(v, axis=1), tf.expand_dims(H_v, axis=2))))
+            hessian_trace_approx.append(tf.reduce_mean(trace_vhv))
+                # grad_vectors.append(g_v)
+                # random_vectors.append(v)
+            # ipt_grad_vectors.append(grad_vectors)
+            # ipt_random_vectors.append(random_vectors)
+    # End of outer GradientTape gg
+    # hessian_trace_approx = []
+    # for i, ipt in enumerate(interest_points_tensors):
+    #     gvs = ipt_grad_vectors[i]
+    #     rvs = ipt_random_vectors[i]
+    #     trace_vhv = []
+    #     for j, gv in enumerate(gvs):
+    #         H_v = gg.gradient(gv, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+    #         H_v = tf.reshape(H_v, shape=[H_v.shape[0], -1])
+    #         trace_vhv.append(tf.matmul(tf.expand_dims(rvs[j], axis=1), tf.expand_dims(H_v, axis=2)))
+    #
+    #     hessian_trace_approx.append(tf.reduce_mean(trace_vhv))
+
+        # ipt_grad_vectors = []
+        # ipt_random_vectors = []
+        # for i, ipt in enumerate(interest_points_tensors):
+        #     max_iter = 100
+        #     grad_vectors = []
+        #     random_vectors = []
+        #     for j in range(max_iter):
+        #         # Generate random vector
+        #         v = tf.random.uniform(shape=ipt_grads[i].shape, minval=0, maxval=2, dtype=tf.int32)
+        #         mask = tf.where(v == 0)
+        #         v = tf.tensor_scatter_nd_update(v, mask, tf.fill(mask.shape[0], -1))
+        #         v = tf.dtypes.cast(v, tf.float32)
+        #         random_vectors.append(v)
+        #
+        #         # Compute inner product with gradient
+        #         v = tf.expand_dims(v, axis=2)
+        #         grad = tf.expand_dims(ipt_grads[i], axis=1)
+        #         g_v = tf.matmul(grad, v)
+        #         g_v = tf.reshape(g_v, [-1])
+        #         grad_vectors.append(g_v)
+        #     ipt_grad_vectors.append(grad_vectors)
+        #     ipt_random_vectors.append(random_vectors)
+
+
+
+    #     ipt_grads = []
+    #     for ipt in interest_points_tensors:
+    #         grad_ipt = g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+    #         r_grad_ipt = tf.reshape(grad_ipt, shape=[grad_ipt.shape[0], -1])
+    #         ipt_grads.append(r_grad_ipt)
+    #
+    #     ipt_grad_vectors = []
+    #     ipt_random_vectors = []
+    #     for i, ipt in enumerate(interest_points_tensors):
+    #         max_iter = 100
+    #         grad_vectors = []
+    #         random_vectors = []
+    #         for j in range(max_iter):
+    #             # Generate random vector
+    #             v = tf.random.uniform(shape=ipt_grads[i].shape, minval=0, maxval=2, dtype=tf.int32)
+    #             mask = tf.where(v == 0)
+    #             v = tf.tensor_scatter_nd_update(v, mask, tf.fill(mask.shape[0], -1))
+    #             v = tf.dtypes.cast(v, tf.float32)
+    #             random_vectors.append(v)
+    #
+    #             # Compute inner product with gradient
+    #             v = tf.expand_dims(v, axis=2)
+    #             grad = tf.expand_dims(ipt_grads[i], axis=1)
+    #             g_v = tf.matmul(grad, v)
+    #             g_v = tf.reshape(g_v, [-1])
+    #             grad_vectors.append(g_v)
+    #         ipt_grad_vectors.append(grad_vectors)
+    #         ipt_random_vectors.append(random_vectors)
+    #
+    # # End of outer GradientTape gg
+    # hessian_trace_approx = []
+    # for i, ipt in enumerate(interest_points_tensors):
+    #     gvs = ipt_grad_vectors[i]
+    #     rvs = ipt_random_vectors[i]
+    #     trace_vhv = []
+    #     for j, gv in enumerate(gvs):
+    #         H_v = gg.gradient(gv, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+    #         H_v = tf.reshape(H_v, shape=[H_v.shape[0], -1])
+    #         trace_vhv.append(tf.matmul(tf.expand_dims(rvs[j], axis=1), tf.expand_dims(H_v, axis=2)))
+    #
+    #     hessian_trace_approx.append(tf.reduce_mean(trace_vhv))
+
 
     ###########################################
     # Compute Gradients
     ##########################################
-    ipt_grad_score = []
 
-    for ipt in interest_points_tensors:
-        grad_ipt = g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+    # ipt_grad_score = []
+    #
+    # for ipt in interest_points_tensors:
+    #     grad_ipt = g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+    #
+    #     r_grad_ipt = tf.reshape(grad_ipt, shape=[grad_ipt.shape[0], -1])
+    #     ipt_grad_score.append(r_grad_ipt)
+        # ipt_grad_score.append(grad_ipt)
 
-        r_grad_ipt = tf.reshape(grad_ipt, shape=[grad_ipt.shape[0], -1])
-        hessian_trace_aprrox = tf.reduce_mean(tf.reduce_sum(tf.pow(r_grad_ipt, 2.0), axis=-1))
-        ipt_grad_score.append(hessian_trace_aprrox)
+    # hessian_trace_aprrox = []
+    # for i, ipt in enumerate(interest_points_tensors):
+    #     max_iter = 10
+    #
+    #     grad_vectors = []
+    #     with tf.GradientTape(persistent=True) as g_i:
+    #         # Compute gradient with respect to interest point's output
+    #         g_i.watch(ipt)
+    #         grad_ipt = g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+    #         r_grad_ipt = tf.reshape(grad_ipt, shape=[grad_ipt.shape[0], -1])
+    #
+    #         for j in range(max_iter):
+    #             # Generate random vector
+    #             v = tf.random.uniform(shape=r_grad_ipt.shape, minval=0, maxval=2, dtype=tf.int32)
+    #             g_i.watch(v)
+    #             mask = tf.where(v == 0)
+    #             v = tf.tensor_scatter_nd_update(v, mask, tf.fill(mask.shape[0], -1))
+    #             v = tf.dtypes.cast(v, tf.float32)
+    #
+    #             # Compute inner product with gradient
+    #             v = tf.expand_dims(v, axis=2)
+    #             grad = tf.expand_dims(r_grad_ipt, axis=1)
+    #             g_v = tf.matmul(grad, v)
+    #             g_v = tf.reshape(g_v, [-1])
+    #             grad_vectors.append(g_v)
+    #
+    #     trace_vhv = []
+    #     for gv in grad_vectors:
+    #         H_v = g_i.gradient(gv, ipt)  #, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+    #         H_v = tf.reshape(H_v, shape=[H_v.shape[0], -1])
+    #         trace_vhv.append(tf.matmul(tf.expand_dims(v, axis=1), tf.expand_dims(H_v, axis=2)))
+    #
+    #     hessian_trace_aprrox.append(tf.reduce_mean(trace_vhv))
 
-    # Output layers or layers that come after the model's considered output layers,
-    # are assigned with a constant normalized value,
-    # according to the given alpha variable and the number of such layers.
-    # Other layers returned weights are normalized by dividing the hessian value by the sum of all other values.
-    sum_without_outputs = sum([ipt_grad_score[i] for i in range(len(ipt_grad_score)) if i not in all_outputs_indices])
+
+
+
+    # ipt_grad_score = []
+    #
+    # for ipt in interest_points_tensors:
+    #     grad_ipt = g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+    #
+    #     r_grad_ipt = tf.reshape(grad_ipt, shape=[grad_ipt.shape[0], -1])
+    #     hessian_trace_aprrox = tf.reduce_mean(tf.reduce_sum(tf.pow(r_grad_ipt, 2.0), axis=-1))
+    #     ipt_grad_score.append(hessian_trace_aprrox)
+    #
+    # # Output layers or layers that come after the model's considered output layers,
+    # # are assigned with a constant normalized value,
+    # # according to the given alpha variable and the number of such layers.
+    # # Other layers returned weights are normalized by dividing the hessian value by the sum of all other values.
+    # sum_without_outputs = sum([ipt_grad_score[i] for i in range(len(ipt_grad_score)) if i not in all_outputs_indices])
+    # normalized_grads_weights = [get_normalized_weight(grad, i, sum_without_outputs, all_outputs_indices, alpha)
+    #                             for i, grad in enumerate(ipt_grad_score)]
+    #
+    # return normalized_grads_weights
+
+    sum_without_outputs = sum([hessian_trace_approx[i] for i in range(len(hessian_trace_approx)) if i not in all_outputs_indices])
     normalized_grads_weights = [get_normalized_weight(grad, i, sum_without_outputs, all_outputs_indices, alpha)
-                                for i, grad in enumerate(ipt_grad_score)]
+                                for i, grad in enumerate(hessian_trace_approx)]
 
     return normalized_grads_weights
 
