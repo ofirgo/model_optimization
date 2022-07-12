@@ -29,6 +29,7 @@ from model_compression_toolkit.core import common
 from model_compression_toolkit.core.common import BaseNode, Graph
 from model_compression_toolkit.core.common.graph.edge import EDGE_SINK_INDEX
 from model_compression_toolkit.core.keras.back2framework.instance_builder import OperationHandler
+from model_compression_toolkit.core.common.logger import Logger
 
 
 def build_input_tensors_list(node: BaseNode,
@@ -93,12 +94,13 @@ def run_operation(n: BaseNode,
     return out_tensors_of_n
 
 
-def keras_model_grad(graph_float: common.Graph,
-                     model_input_tensors: Dict[BaseNode, np.ndarray],
-                     interest_points: List[BaseNode],
-                     output_list: List[BaseNode],
-                     all_outputs_indices: List[int],
-                     alpha: float = 0.3) -> List[float]:
+def keras_iterative_approx_hessian_trace(graph_float: common.Graph,
+                                         model_input_tensors: Dict[BaseNode, np.ndarray],
+                                         interest_points: List[BaseNode],
+                                         output_list: List[BaseNode],
+                                         all_outputs_indices: List[int],
+                                         alpha: float = 0.3,
+                                         num_iter: int = 30) -> List[float]:
     """
     Computes the gradients of a Keras model's outputs with respect to the feature maps of the set of given
     interest points. It then uses the gradients to compute the hessian trace for each interest point and normalized the
@@ -118,64 +120,26 @@ def keras_model_grad(graph_float: common.Graph,
     Returns: A list of normalized gradients to be considered as the relevancy that each interest
     point's output has on the model's output.
     """
+    if not all([images.shape[0] == 1 for node, images in model_input_tensors.items()]):
+        Logger.critical("Iterative hessian trace computation is only supported on a single image sample")
 
-    node_to_output_tensors_dict = dict()
-
-    # Build an OperationHandler to handle conversions from graph nodes to Keras operators.
-    oh = OperationHandler(graph_float)
-
-    input_nodes_to_input_tensors = {inode: tf.convert_to_tensor(model_input_tensors[inode]) for
-                                    inode in graph_float.get_inputs()}  # Cast numpy array to tf.Tensor
-
-    # for interest point p in interest_points:
-    interest_points_tensors = []
-    output_tensors = []
     with tf.GradientTape(persistent=True, watch_accessed_variables=False) as gg:
         with tf.GradientTape(persistent=True, watch_accessed_variables=False) as g:
-            # Build a dictionary from node to its output tensors, by applying the layers sequentially.
-            for n in oh.node_sort:
-                op_func = oh.get_node_op_function(n)  # Get node operation function
-
-                input_tensors = build_input_tensors_list(n,
-                                                         graph_float,
-                                                         node_to_output_tensors_dict)  # Fetch Node inputs
-                out_tensors_of_n = run_operation(n,  # Run node operation and fetch outputs
-                                                 input_tensors,
-                                                 op_func,
-                                                 input_nodes_to_input_tensors)
-
-                # Gradients can be computed only on float32 tensors
-                out_tensors_of_n = tf.dtypes.cast(out_tensors_of_n, tf.float32)
-                if n in interest_points:
-                    # Recording the relevant feature maps onto the gradient tape
-                    gg.watch(out_tensors_of_n)
-                    g.watch(out_tensors_of_n)
-                    interest_points_tensors.append(out_tensors_of_n)
-                if n in output_list:
-                    output_tensors.append(out_tensors_of_n)
-
-                if isinstance(out_tensors_of_n, list):
-                    node_to_output_tensors_dict.update({n: out_tensors_of_n})
-                else:
-                    node_to_output_tensors_dict.update({n: [out_tensors_of_n]})
-
-            # Get a reduced loss value for derivatives computation
-            output_loss = 0
-            for output in output_tensors:
-                output = tf.reshape(output, shape=(output.shape[0], -1))
-                # output_loss += tf.reduce_mean(tf.reduce_sum(output, axis=-1))
-                output_loss += tf.reduce_mean(tf.norm(output, axis=-1, ord=2))
-                # output_loss += tf.reduce_mean(tf.reduce_sum(tf.pow(output, 2.0), axis=-1))
+            output_loss, interest_points_tensors = _model_outputs_computation(graph_float,
+                                                                              model_input_tensors,
+                                                                              interest_points, output_list,
+                                                                              gradient_tapes_list=[gg, g],
+                                                                              output_loss_fn=lambda output:
+                                                                              0.5 * tf.reduce_sum(tf.pow(output, 2)))  # Single image in batch
         # End of inner GradientTape g
 
         hessian_trace_approx = []
         for ipt in interest_points_tensors:
             r_grad_ipt = tf.reshape(g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO),
                                     shape=[ipt.shape[0], -1])
-            max_iter = 100
 
             trace_vhv = []
-            for j in range(max_iter):
+            for j in range(num_iter):
                 v = tf.random.uniform(shape=r_grad_ipt.shape, minval=0, maxval=2, dtype=tf.int32)
                 with gg.stop_recording():
                     mask = tf.where(v == 0)
@@ -192,41 +156,109 @@ def keras_model_grad(graph_float: common.Graph,
                     trace_vhv.append(tf.reduce_mean(tf.matmul(tf.expand_dims(v, axis=1), tf.expand_dims(H_v, axis=2))))
             hessian_trace_approx.append(tf.reduce_mean(trace_vhv))
 
-    ###########################################
-    # Compute Gradients
-    ##########################################
+    return _normalize_weights(hessian_trace_approx, all_outputs_indices, alpha)
 
-    # ipt_grad_score = []
-    #
-    # for ipt in interest_points_tensors:
-    #     grad_ipt = g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
-    #
-    #     r_grad_ipt = tf.reshape(grad_ipt, shape=[grad_ipt.shape[0], -1])
-    #     hessian_trace_aprrox = tf.reduce_mean(tf.reduce_sum(tf.pow(r_grad_ipt, 2.0), axis=-1))
-    #     ipt_grad_score.append(hessian_trace_aprrox)
-    #
-    # # Output layers or layers that come after the model's considered output layers,
-    # # are assigned with a constant normalized value,
-    # # according to the given alpha variable and the number of such layers.
-    # # Other layers returned weights are normalized by dividing the hessian value by the sum of all other values.
-    # sum_without_outputs = sum([ipt_grad_score[i] for i in range(len(ipt_grad_score)) if i not in all_outputs_indices])
-    # normalized_grads_weights = [get_normalized_weight(grad, i, sum_without_outputs, all_outputs_indices, alpha)
-    #                             for i, grad in enumerate(ipt_grad_score)]
-    #
-    # return normalized_grads_weights
 
-    sum_without_outputs = sum([hessian_trace_approx[i] for i in range(len(hessian_trace_approx)) if i not in all_outputs_indices])
-    normalized_grads_weights = [get_normalized_weight(grad, i, sum_without_outputs, all_outputs_indices, alpha)
-                                for i, grad in enumerate(hessian_trace_approx)]
+def keras_approx_hessian_trace(graph_float: common.Graph,
+                               model_input_tensors: Dict[BaseNode, np.ndarray],
+                               interest_points: List[BaseNode],
+                               output_list: List[BaseNode],
+                               all_outputs_indices: List[int],
+                               alpha: float = 0.3) -> List[float]:
+
+    with tf.GradientTape(persistent=True) as g:
+        output_loss, interest_points_tensors = _model_outputs_computation(graph_float,
+                                                                          model_input_tensors,
+                                                                          interest_points, output_list,
+                                                                          gradient_tapes_list=[g],
+                                                                          output_loss_fn=lambda output:
+                                                                          tf.reduce_mean(0.5 * tf.reduce_sum(
+                                                                              tf.pow(output, 2), axis=-1)))
+
+    hessian_scores = []
+    for ipt in interest_points_tensors:
+        grad_ipt = g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+
+        r_grad_ipt = tf.reshape(grad_ipt, shape=[grad_ipt.shape[0], -1])
+        hessian_trace_approx = tf.reduce_mean(tf.reduce_sum(tf.pow(r_grad_ipt, 2.0), axis=-1))
+        hessian_scores.append(hessian_trace_approx)
+
+    return _normalize_weights(hessian_scores, all_outputs_indices, alpha)
+
+
+def _model_outputs_computation(graph_float,
+                               model_input_tensors,
+                               interest_points,
+                               output_list,
+                               gradient_tapes_list,
+                               output_loss_fn):
+
+    node_to_output_tensors_dict = dict()
+
+    # Build an OperationHandler to handle conversions from graph nodes to Keras operators.
+    oh = OperationHandler(graph_float)
+
+    input_nodes_to_input_tensors = {inode: tf.convert_to_tensor(model_input_tensors[inode]) for
+                                    inode in graph_float.get_inputs()}  # Cast numpy array to tf.Tensor
+
+    interest_points_tensors = []
+    output_tensors = []
+
+    for n in oh.node_sort:
+        # Build a dictionary from node to its output tensors, by applying the layers sequentially.
+        op_func = oh.get_node_op_function(n)  # Get node operation function
+
+        input_tensors = build_input_tensors_list(n,
+                                                 graph_float,
+                                                 node_to_output_tensors_dict)  # Fetch Node inputs
+        out_tensors_of_n = run_operation(n,  # Run node operation and fetch outputs
+                                         input_tensors,
+                                         op_func,
+                                         input_nodes_to_input_tensors)
+
+        # Gradients can be computed only on float32 tensors
+        out_tensors_of_n = tf.dtypes.cast(out_tensors_of_n, tf.float32)
+        if n in interest_points:
+            # Recording the relevant feature maps onto the gradient tape
+            for g in gradient_tapes_list:
+                g.watch(out_tensors_of_n)
+            interest_points_tensors.append(out_tensors_of_n)
+        if n in output_list:
+            output_tensors.append(out_tensors_of_n)
+
+        if isinstance(out_tensors_of_n, list):
+            node_to_output_tensors_dict.update({n: out_tensors_of_n})
+        else:
+            node_to_output_tensors_dict.update({n: [out_tensors_of_n]})
+
+    # Get a reduced loss value for derivatives computation
+    output_loss = 0
+    for output in output_tensors:
+        output = tf.reshape(output, shape=(output.shape[0], -1))
+        output_loss += output_loss_fn(output)
+
+    return output_loss, interest_points_tensors
+
+
+def _normalize_weights(hessian_scores,
+                       all_outputs_indices,
+                       alpha):
+    # Output layers or layers that come after the model's considered output layers,
+    # are assigned with a constant normalized value,
+    # according to the given alpha variable and the number of such layers.
+    # Other layers returned weights are normalized by dividing the hessian value by the sum of all other values.
+    sum_without_outputs = sum([hessian_scores[i] for i in range(len(hessian_scores)) if i not in all_outputs_indices])
+    normalized_grads_weights = [_get_normalized_weight(grad, i, sum_without_outputs, all_outputs_indices, alpha)
+                                for i, grad in enumerate(hessian_scores)]
 
     return normalized_grads_weights
 
 
-def get_normalized_weight(grad: float,
-                          i: int,
-                          sum_without_outputs: float,
-                          all_outputs_indices: List[int],
-                          alpha: float) -> float:
+def _get_normalized_weight(grad: float,
+                           i: int,
+                           sum_without_outputs: float,
+                           all_outputs_indices: List[int],
+                           alpha: float) -> float:
     """
     Normalizes the node's gradient value. If it is an output or output replacement node than the normalized value is
     a constant, otherwise, it is normalized by dividing with the sum of all gradient values.

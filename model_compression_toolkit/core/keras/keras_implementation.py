@@ -4,7 +4,8 @@ import numpy as np
 import tensorflow as tf
 
 from model_compression_toolkit.core.common.mixed_precision.sensitivity_evaluation import SensitivityEvaluation
-from model_compression_toolkit.core.keras.back2framework.model_gradients import keras_model_grad
+from model_compression_toolkit.core.keras.back2framework.model_gradients import \
+    keras_approx_hessian_trace, keras_iterative_approx_hessian_trace
 from model_compression_toolkit.core.keras.constants import ACTIVATION, SOFTMAX, SIGMOID, ARGMAX, LAYER_NAME
 from tensorflow.keras.models import Model
 from tensorflow.python.layers.base import Layer
@@ -436,7 +437,9 @@ class KerasImplementation(FrameworkImplementation):
 
         """
 
-        return keras_model_grad(graph_float, model_input_tensors, interest_points, output_list, all_outputs_indices, alpha)
+        # return keras_model_grad(graph_float, model_input_tensors, interest_points, output_list, all_outputs_indices, alpha)
+        return keras_iterative_approx_hessian_trace(graph_float, model_input_tensors, interest_points, output_list, all_outputs_indices, alpha)
+        # return keras_approx_hessian_trace(graph_float, model_input_tensors, interest_points, output_list, all_outputs_indices, alpha)
 
     def is_node_compatible_for_mp_metric_outputs(self,
                                                  node: BaseNode) -> Any:
