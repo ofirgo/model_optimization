@@ -106,7 +106,7 @@ def keras_iterative_approx_hessian_trace(graph_float: common.Graph,
                                          output_list: List[BaseNode],
                                          all_outputs_indices: List[int],
                                          alpha: float = 0.3,
-                                         num_iter: int = 100) -> List[float]:
+                                         num_iter: int = 50) -> List[float]:
     """
     Computes the gradients of a Keras model's outputs with respect to the feature maps of the set of given
     interest points. It then uses the gradients to compute the hessian trace for each interest point and normalized the
@@ -143,8 +143,6 @@ def keras_iterative_approx_hessian_trace(graph_float: common.Graph,
         hessian_trace_approx = []
         for ipt in interest_points_tensors:
             r_grad_ipt = g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
-            # with gg.stop_recording():
-            #     r_grad_ipt = tf.reshape(r_grad_ipt, shape=[ipt.shape[0], -1])
             r_grad_ipt = tf.reshape(r_grad_ipt, shape=[ipt.shape[0], -1])
 
             trace_vhv = []
@@ -165,9 +163,10 @@ def keras_iterative_approx_hessian_trace(graph_float: common.Graph,
                     trace_vhv.append(tf.reduce_mean(tf.matmul(tf.expand_dims(v, axis=1), tf.expand_dims(H_v, axis=2))))
             # hessian_trace_approx.append(tf.reduce_mean(trace_vhv))
             with gg.stop_recording():
+                output_features_sum = tf.abs(output_features_sum)
                 normalized_grad = r_grad_ipt / (output_features_sum + EPS)
                 squared_grad_trace = tf.reduce_sum(tf.pow(normalized_grad, 2))
-            hessian_trace_approx.append((tf.reduce_mean(trace_vhv) - squared_grad_trace) / (output_features_sum + EPS))
+            hessian_trace_approx.append(tf.abs(tf.reduce_mean(trace_vhv) - squared_grad_trace) / (output_features_sum + EPS))
 
     return _normalize_weights(hessian_trace_approx, all_outputs_indices, alpha)
 
@@ -250,7 +249,7 @@ def _model_outputs_computation(graph_float,
         output = tf.reshape(output, shape=(output.shape[0], -1))
         output_loss += output_loss_fn(output)
 
-    return output_loss, interest_points_tensors, tf.reduce_sum(output_tensors)
+    return output_loss, interest_points_tensors, tf.add_n([tf.reduce_sum(ot) for ot in output_tensors])
 
 
 def _normalize_weights(hessian_scores,
