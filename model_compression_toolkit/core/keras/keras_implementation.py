@@ -457,12 +457,13 @@ class KerasImplementation(FrameworkImplementation):
         if node.layer_class == Activation:
             node_attr = getattr(node, 'framework_attr', None)
             if node_attr is not None and node_attr[ACTIVATION] == SOFTMAX:
-                return False
+                return True
         elif node.layer_class == TFOpLambda:
             node_attr = getattr(node, 'framework_attr', None)
             if node_attr is not None and ARGMAX in node_attr[LAYER_NAME]:
                 return False
-        elif node.layer_class == tf.nn.softmax or node.layer_class == tf.math.argmax:
+        # elif node.layer_class == tf.nn.softmax or node.layer_class == tf.math.argmax:
+        elif node.layer_class == tf.math.argmax:
             return False
 
         return True

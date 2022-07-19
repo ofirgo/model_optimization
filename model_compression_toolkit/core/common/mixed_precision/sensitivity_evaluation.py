@@ -192,7 +192,7 @@ class SensitivityEvaluation:
                 batch_ip_gradients = []
                 for i in range(1, images[0].shape[0] + 1):
                     image_ip_gradients = self.fw_impl.model_grad(self.graph,
-                                                                 {inode: images[0][j:i] for inode in self.graph.get_inputs()},
+                                                                 {inode: images[0][i-1:i] for inode in self.graph.get_inputs()},
                                                                  self.interest_points,
                                                                  self.outputs_replacement_nodes,
                                                                  self.output_nodes_indices,

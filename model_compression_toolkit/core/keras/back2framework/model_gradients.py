@@ -32,12 +32,6 @@ from model_compression_toolkit.core.keras.back2framework.instance_builder import
 from model_compression_toolkit.core.common.logger import Logger
 
 
-@tf.RegisterGradient("ResizeBilinearGrad")
-def _ResizeBilinearGrad_grad(op, grad):
-    up = tf.image.resize(grad, tf.shape(op.inputs[0])[1:-1])
-    return up, None
-
-
 def build_input_tensors_list(node: BaseNode,
                              graph: Graph,
                              node_to_output_tensors_dict: Dict[BaseNode, List[TFReference]]) -> List[List[TFReference]]:
@@ -106,7 +100,7 @@ def keras_iterative_approx_hessian_trace(graph_float: common.Graph,
                                          output_list: List[BaseNode],
                                          all_outputs_indices: List[int],
                                          alpha: float = 0.3,
-                                         num_iter: int = 50) -> List[float]:
+                                         num_iter: int = 3) -> List[float]:
     """
     Computes the gradients of a Keras model's outputs with respect to the feature maps of the set of given
     interest points. It then uses the gradients to compute the hessian trace for each interest point and normalized the
@@ -128,47 +122,90 @@ def keras_iterative_approx_hessian_trace(graph_float: common.Graph,
     """
     if not all([images.shape[0] == 1 for node, images in model_input_tensors.items()]):
         Logger.critical("Iterative hessian trace computation is only supported on a single image sample")
-    with tf.GradientTape(persistent=True, watch_accessed_variables=False) as gg:
-        with tf.GradientTape(persistent=True, watch_accessed_variables=False) as g:
-            output_loss, interest_points_tensors, output_features_sum = _model_outputs_computation(graph_float,
-                                                                                                   model_input_tensors,
-                                                                                                   interest_points,
-                                                                                                   output_list,
-                                                                                                   gradient_tapes_list=[
-                                                                                                       gg, g],
-                                                                                                   output_loss_fn=lambda output:
-                                                                                                   0.5 * tf.pow(tf.reduce_sum(output), 2))  # Single image in batch
-        # End of inner GradientTape g
 
-        hessian_trace_approx = []
-        for ipt in interest_points_tensors:
-            r_grad_ipt = g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
-            r_grad_ipt = tf.reshape(r_grad_ipt, shape=[ipt.shape[0], -1])
+    with tf.GradientTape(persistent=True, watch_accessed_variables=False) as g:
+        output_loss, outputs, interest_points_tensors, output_features_sum = _model_outputs_computation(graph_float,
+                                                                                               model_input_tensors,
+                                                                                               interest_points,
+                                                                                               output_list,
+                                                                                               gradient_tapes_list=[g],
+                                                                                               output_loss_fn=lambda output:
+                                                                                               0.5 * tf.pow(tf.reduce_sum(output), 2))  # Single image in batch
+        outputs_jacobians_approx = []
+        for output in outputs:
+            output = tf.reshape(output, shape=[outputs[0].shape[0], -1])
 
-            trace_vhv = []
-            for j in range(num_iter):
-                v = tf.random.uniform(shape=r_grad_ipt.shape, minval=0, maxval=2, dtype=tf.int32)
-                with gg.stop_recording():
-                    mask = tf.where(v == 0)
-                v = tf.tensor_scatter_nd_update(v, mask, tf.fill(mask.shape[0], -1))
-                v = tf.dtypes.cast(v, tf.float32)
+            ipts_jac_trace_approx = []
+            for ipt in interest_points_tensors:
+                trace_jv = []
+                for j in range(num_iter):
+                    # v = tf.random.uniform(shape=output.shape, minval=0, maxval=2, dtype=tf.int32)
+                    # with g.stop_recording():
+                    v = tf.random.normal(shape=output.shape)
 
-                # Compute inner product with gradient
-                g_v = tf.matmul(tf.expand_dims(r_grad_ipt, axis=1), tf.expand_dims(v, axis=2))
-                g_v_loss = tf.reduce_mean(g_v)
+                    # Compute inner product with output
+                    # f_v = tf.reduce_mean(tf.reduce_sum(v * output, axis=-1))
+                    f_v = tf.reduce_sum(v * output)
+                    # f_v = tf.reduce_mean(tf.reduce_sum(tf.multiply(v, output), axis=-1))
+                    # f_v = tf.reduce_mean(tf.matmul(tf.expand_dims(output, axis=1), tf.expand_dims(v, axis=2)))
+                    # f_v = tf.reduce_mean(tf.matmul(v, tf.transpose(output)))
 
-                with gg.stop_recording():
-                    H_v = gg.gradient(g_v_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
-                    H_v = tf.reshape(H_v, shape=[H_v.shape[0], -1])
-                    trace_vhv.append(tf.reduce_mean(tf.matmul(tf.expand_dims(v, axis=1), tf.expand_dims(H_v, axis=2))))
-            # hessian_trace_approx.append(tf.reduce_mean(trace_vhv))
-            with gg.stop_recording():
-                output_features_sum = tf.abs(output_features_sum)
-                normalized_grad = r_grad_ipt / (output_features_sum + EPS)
-                squared_grad_trace = tf.reduce_sum(tf.pow(normalized_grad, 2))
-            hessian_trace_approx.append(tf.abs(tf.reduce_mean(trace_vhv) - squared_grad_trace) / (output_features_sum + EPS))
+                    with g.stop_recording():
+                        jac_v = g.gradient(f_v, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+                        jac_v = tf.reshape(jac_v, [jac_v.shape[0], -1])
+                        jac_trace_approx = tf.reduce_mean(tf.reduce_sum(tf.pow(jac_v, 2.0)))
+                        trace_jv.append(jac_trace_approx)
+                # with g.stop_recording():
+                #     ipts_jac_trace_approx.append(tf.reduce_mean(trace_jv))
+                ipts_jac_trace_approx.append(tf.reduce_mean(trace_jv))
+            outputs_jacobians_approx.append(ipts_jac_trace_approx)
+        # return _normalize_weights(ipts_jac_trace_approx, all_outputs_indices, alpha)
+        return _normalize_weights(tf.reduce_mean(outputs_jacobians_approx, axis=0), all_outputs_indices, alpha)
+        # return ipts_jac_trace_approx
 
-    return _normalize_weights(hessian_trace_approx, all_outputs_indices, alpha)
+
+
+    # with tf.GradientTape(persistent=True, watch_accessed_variables=False) as gg:
+    #     with tf.GradientTape(persistent=True, watch_accessed_variables=False) as g:
+    #         output_loss, interest_points_tensors, output_features_sum = _model_outputs_computation(graph_float,
+    #                                                                                                model_input_tensors,
+    #                                                                                                interest_points,
+    #                                                                                                output_list,
+    #                                                                                                gradient_tapes_list=[
+    #                                                                                                    gg, g],
+    #                                                                                                output_loss_fn=lambda output:
+    #                                                                                                0.5 * tf.pow(tf.reduce_sum(output), 2))  # Single image in batch
+    #     # End of inner GradientTape g
+    #
+    #     hessian_trace_approx = []
+    #     for ipt in interest_points_tensors:
+    #         r_grad_ipt = g.gradient(output_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+    #         r_grad_ipt = tf.reshape(r_grad_ipt, shape=[ipt.shape[0], -1])
+    #
+    #         trace_vhv = []
+    #         for j in range(num_iter):
+    #             v = tf.random.uniform(shape=r_grad_ipt.shape, minval=0, maxval=2, dtype=tf.int32)
+    #             with gg.stop_recording():
+    #                 mask = tf.where(v == 0)
+    #             v = tf.tensor_scatter_nd_update(v, mask, tf.fill(mask.shape[0], -1))
+    #             v = tf.dtypes.cast(v, tf.float32)
+    #
+    #             # Compute inner product with gradient
+    #             g_v = tf.matmul(tf.expand_dims(r_grad_ipt, axis=1), tf.expand_dims(v, axis=2))
+    #             g_v_loss = tf.reduce_mean(g_v)
+    #
+    #             with gg.stop_recording():
+    #                 H_v = gg.gradient(g_v_loss, ipt, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+    #                 H_v = tf.reshape(H_v, shape=[H_v.shape[0], -1])
+    #                 trace_vhv.append(tf.reduce_mean(tf.matmul(tf.expand_dims(v, axis=1), tf.expand_dims(H_v, axis=2))))
+    #         # hessian_trace_approx.append(tf.reduce_mean(trace_vhv))
+    #         with gg.stop_recording():
+    #             output_features_sum = tf.abs(output_features_sum)
+    #             normalized_grad = r_grad_ipt / (output_features_sum + EPS)
+    #             squared_grad_trace = tf.reduce_sum(tf.pow(normalized_grad, 2))
+    #         hessian_trace_approx.append(tf.abs(tf.reduce_mean(trace_vhv) - squared_grad_trace) / (output_features_sum + EPS))
+    #
+    # return _normalize_weights(hessian_trace_approx, all_outputs_indices, alpha)
 
 
 def keras_approx_hessian_trace(graph_float: common.Graph,
@@ -245,11 +282,11 @@ def _model_outputs_computation(graph_float,
 
     # Get a reduced loss value for derivatives computation
     output_loss = 0
-    for output in output_tensors:
-        output = tf.reshape(output, shape=(output.shape[0], -1))
-        output_loss += output_loss_fn(output)
+    # for output in output_tensors:
+    #     output = tf.reshape(output, shape=(output.shape[0], -1))
+    #     output_loss += output_loss_fn(output)
 
-    return output_loss, interest_points_tensors, tf.add_n([tf.reduce_sum(ot) for ot in output_tensors])
+    return output_loss, output_tensors, interest_points_tensors, tf.add_n([tf.reduce_sum(ot) for ot in output_tensors])
 
 
 def _normalize_weights(hessian_scores,
