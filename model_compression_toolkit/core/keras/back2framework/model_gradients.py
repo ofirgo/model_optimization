@@ -100,7 +100,7 @@ def keras_iterative_approx_hessian_trace(graph_float: common.Graph,
                                          output_list: List[BaseNode],
                                          all_outputs_indices: List[int],
                                          alpha: float = 0.3,
-                                         num_iter: int = 3) -> List[float]:
+                                         num_iter: int = 50) -> List[float]:
     """
     Computes the gradients of a Keras model's outputs with respect to the feature maps of the set of given
     interest points. It then uses the gradients to compute the hessian trace for each interest point and normalized the
@@ -133,7 +133,7 @@ def keras_iterative_approx_hessian_trace(graph_float: common.Graph,
                                                                                                0.5 * tf.pow(tf.reduce_sum(output), 2))  # Single image in batch
         outputs_jacobians_approx = []
         for output in outputs:
-            output = tf.reshape(output, shape=[outputs[0].shape[0], -1])
+            output = tf.reshape(output, shape=[output.shape[0], -1])
 
             ipts_jac_trace_approx = []
             for ipt in interest_points_tensors:

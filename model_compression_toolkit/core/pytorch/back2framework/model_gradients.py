@@ -15,6 +15,7 @@
 from typing import Any, Dict, List
 
 import torch
+import torch.autograd as autograd
 from networkx import topological_sort
 
 from model_compression_toolkit.core import common
@@ -118,6 +119,7 @@ class PytorchModelGradients(torch.nn.Module):
         self.graph_float = graph_float
         self.node_sort = list(topological_sort(graph_float))
         self.interest_points = interest_points
+        self.interest_points_tensors = []
 
         for n in self.node_sort:
             if not isinstance(n, FunctionalNode):
@@ -151,12 +153,14 @@ class PytorchModelGradients(torch.nn.Module):
                 for t in out_tensors_of_n:
                     if n in self.interest_points and t.requires_grad:
                         t.retain_grad()
+                        self.interest_points_tensors.append(t)
                     output_t.append(t)
                 node_to_output_tensors_dict.update({n: output_t})
             else:
                 assert isinstance(out_tensors_of_n, torch.Tensor)
                 if n in self.interest_points and out_tensors_of_n.requires_grad:
                     out_tensors_of_n.retain_grad()
+                    self.interest_points_tensors.append(out_tensors_of_n)
                 node_to_output_tensors_dict.update({n: [out_tensors_of_n]})
 
         outputs = generate_outputs(self.interest_points,
@@ -169,7 +173,8 @@ def pytorch_model_grad(graph_float: common.Graph,
                        model_input_tensors: Dict[BaseNode, torch.Tensor],
                        interest_points: List[BaseNode],
                        all_outputs_indices: List[int],
-                       alpha: float = 0.3) -> List[float]:
+                       alpha: float = 0.3,
+                       num_iter: int = 50) -> List[float]:
     """
     Computes the gradients of a Pytorch model's outputs with respect to the feature maps of the set of given
     interest points. It then uses the gradients to compute the hessian trace for each interest point and normalized the
@@ -201,40 +206,85 @@ def pytorch_model_grad(graph_float: common.Graph,
     # Compute Gradients
     ############################################
     device = output_tensors[0].device
-    output_tensors_for_loss = [output_tensors[i] for i in all_outputs_indices]
-    output_loss = torch.tensor([0.0], requires_grad=True, device=device)
-    for output in output_tensors_for_loss:
-        output = torch.reshape(output, shape=(output.shape[0], -1))
-        output_loss = torch.add(output_loss, torch.mean(torch.sum(output, dim=-1)))
+    # output_tensors_for_loss = [output_tensors[i] for i in all_outputs_indices]
+    # output_loss = torch.tensor([0.0], requires_grad=True, device=device)
+    # for output in output_tensors_for_loss:
+    #     output = torch.reshape(output, shape=(output.shape[0], -1))
+    #     output_loss = torch.add(output_loss, torch.mean(torch.sum(output, dim=-1)))
 
-    output_loss.backward()
+    outputs_jacobians_approx = []
+    for i in all_outputs_indices:
+        # output.backward()
+        output = output_tensors[i]
+        output = torch.reshape(output, shape=[output.shape[0], -1])
 
-    ipt_gradients = [torch.Tensor([0.0]) if t.grad is None else t.grad for t in output_tensors]
-    r_ipt_gradients = [torch.reshape(t, shape=(t.shape[0], -1)) for t in ipt_gradients]
-    hessian_trace_aprrox = [torch.mean(torch.sum(torch.pow(ipt_grad, 2.0), dim=-1)) for ipt_grad in r_ipt_gradients]
+        ipts_jac_trace_approx = []
+        for ipt in model_grads_net.interest_points_tensors:
+            trace_jv = []
+            for j in range(num_iter):
+                v = torch.randn(output.shape, device=device)
+                f_v = torch.sum(v * output)
 
+                jac_v = autograd.grad(outputs=f_v,
+                                      inputs=ipt,
+                                      retain_graph=True)[0]
+                jac_v = torch.reshape(jac_v, [jac_v.shape[0], -1])
+                jac_trace_approx = torch.mean(torch.sum(torch.pow(jac_v, 2.0)))
+                trace_jv.append(jac_trace_approx)
+            ipts_jac_trace_approx.append(torch.mean(torch.stack(trace_jv)))
+        outputs_jacobians_approx.append(ipts_jac_trace_approx)
+
+        return _normalize_weights(torch.mean(torch.Tensor(outputs_jacobians_approx), dim=0), all_outputs_indices, alpha)
+
+    # device = output_tensors[0].device
+    # output_tensors_for_loss = [output_tensors[i] for i in all_outputs_indices]
+    # output_loss = torch.tensor([0.0], requires_grad=True, device=device)
+    # for output in output_tensors_for_loss:
+    #     output = torch.reshape(output, shape=(output.shape[0], -1))
+    #     output_loss = torch.add(output_loss, torch.mean(torch.sum(output, dim=-1)))
+    #
+    # output_loss.backward()
+    #
+    # ipt_gradients = [torch.Tensor([0.0]) if t.grad is None else t.grad for t in output_tensors]
+    # r_ipt_gradients = [torch.reshape(t, shape=(t.shape[0], -1)) for t in ipt_gradients]
+    # hessian_trace_aprrox = [torch.mean(torch.sum(torch.pow(ipt_grad, 2.0), dim=-1)) for ipt_grad in r_ipt_gradients]
+    #
+    # # Output layers or layers that come after the model's considered output layers,
+    # # are assigned with a constant normalized value,
+    # # according to the given alpha variable and the number of such layers.
+    # # Other layers returned weights are normalized by dividing the hessian value by the sum of all other values.
+    # hessians_without_outputs = [hessian_trace_aprrox[i] for i in range(len(hessian_trace_aprrox))
+    #                             if i not in all_outputs_indices]
+    # sum_without_outputs = sum(hessians_without_outputs)
+    # normalized_grads_weights = [get_normalized_weight(grad,
+    #                                                   i,
+    #                                                   sum_without_outputs,
+    #                                                   all_outputs_indices,
+    #                                                   alpha)
+    #                             for i, grad in enumerate(hessian_trace_aprrox)]
+
+    # return normalized_grads_weights
+
+def _normalize_weights(hessian_scores,
+                       all_outputs_indices,
+                       alpha):
     # Output layers or layers that come after the model's considered output layers,
     # are assigned with a constant normalized value,
     # according to the given alpha variable and the number of such layers.
     # Other layers returned weights are normalized by dividing the hessian value by the sum of all other values.
-    hessians_without_outputs = [hessian_trace_aprrox[i] for i in range(len(hessian_trace_aprrox))
+    hessians_without_outputs = [hessian_scores[i] for i in range(len(hessian_scores))
                                 if i not in all_outputs_indices]
     sum_without_outputs = sum(hessians_without_outputs)
-    normalized_grads_weights = [get_normalized_weight(grad,
-                                                      i,
-                                                      sum_without_outputs,
-                                                      all_outputs_indices,
-                                                      alpha)
-                                for i, grad in enumerate(hessian_trace_aprrox)]
+    normalized_grads_weights = [_get_normalized_weight(grad, i, sum_without_outputs, all_outputs_indices, alpha)
+                                for i, grad in enumerate(hessian_scores)]
 
     return normalized_grads_weights
 
-
-def get_normalized_weight(grad: torch.Tensor,
-                          i: int,
-                          sum_without_outputs: float,
-                          all_outputs_indices: List[int],
-                          alpha: float) -> float:
+def _get_normalized_weight(grad: torch.Tensor,
+                           i: int,
+                           sum_without_outputs: float,
+                           all_outputs_indices: List[int],
+                           alpha: float) -> float:
     """
     Normalizes the node's gradient value. If it is an output or output replacement node than the normalized value is
     a constant, otherwise, it is normalized by dividing with the sum of all gradient values.
