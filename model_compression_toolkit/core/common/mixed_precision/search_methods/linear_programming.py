@@ -158,21 +158,28 @@ def _formalize_problem(layer_to_indicator_vars_mapping: Dict[int, Dict[int, LpVa
         if not np.isinf(target_kpi.weights_memory):
             _add_set_of_kpi_constraints(search_manager=search_manager,
                                         target=KPITarget.WEIGHTS,
-                                        target_memory=target_kpi.weights_memory,
+                                        target_kpi_value=target_kpi.weights_memory,
                                         indicators_matrix=indicators_matrix,
                                         lp_problem=lp_problem)
 
         if not np.isinf(target_kpi.activation_memory):
             _add_set_of_kpi_constraints(search_manager=search_manager,
                                         target=KPITarget.ACTIVATION,
-                                        target_memory=target_kpi.activation_memory,
+                                        target_kpi_value=target_kpi.activation_memory,
                                         indicators_matrix=indicators_matrix,
                                         lp_problem=lp_problem)
 
         if not np.isinf(target_kpi.total_memory):
             _add_set_of_kpi_constraints(search_manager=search_manager,
                                         target=KPITarget.TOTAL,
-                                        target_memory=target_kpi.total_memory,
+                                        target_kpi_value=target_kpi.total_memory,
+                                        indicators_matrix=indicators_matrix,
+                                        lp_problem=lp_problem)
+
+        if not np.isinf(target_kpi.bops):
+            _add_set_of_kpi_constraints(search_manager=search_manager,
+                                        target=KPITarget.BOPS,
+                                        target_kpi_value=target_kpi.total_memory,
                                         indicators_matrix=indicators_matrix,
                                         lp_problem=lp_problem)
 
@@ -184,7 +191,7 @@ def _formalize_problem(layer_to_indicator_vars_mapping: Dict[int, Dict[int, LpVa
 
 def _add_set_of_kpi_constraints(search_manager: MixedPrecisionSearchManager,
                                 target: KPITarget,
-                                target_memory: float,
+                                target_kpi_value: float,
                                 indicators_matrix: np.ndarray,
                                 lp_problem: LpProblem):
 
@@ -206,7 +213,7 @@ def _add_set_of_kpi_constraints(search_manager: MixedPrecisionSearchManager,
     aggr_kpi = search_manager.compute_kpi_functions[target][1](kpi_sum_vector)
 
     for v in aggr_kpi:
-        lp_problem += v <= target_memory
+        lp_problem += v <= target_kpi_value
 
 
 def _build_layer_to_metrics_mapping(node_to_bitwidth_indices: Dict[int, List[int]],

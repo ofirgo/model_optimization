@@ -408,3 +408,14 @@ class FrameworkImplementation(ABC):
 
         raise NotImplemented(f'{self.__class__.__name__} have to implement the '
                              f'framework\'s is_node_compatible_for_mp_metric_outputs method.')
+
+    @abstractmethod
+    def get_node_mac_operations(self,
+                                node: BaseNode,
+                                fw_info: FrameworkInfo) -> float:
+        """
+        TODO: add description
+        """
+
+        raise NotImplemented(f'{self.__class__.__name__} have to implement the '
+                             f'framework\'s get_node_mac_operations method.')

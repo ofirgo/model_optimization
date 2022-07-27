@@ -425,3 +425,12 @@ class PytorchImplementation(FrameworkImplementation):
         """
 
         return node.layer_class not in [argmax]
+
+    def get_node_mac_operations(self,
+                                node: BaseNode,
+                                fw_info: FrameworkInfo) -> float:
+        """
+        TODO: add description
+        """
+
+        raise NotImplemented(f'BOPS KPI not supported in Pytorch')

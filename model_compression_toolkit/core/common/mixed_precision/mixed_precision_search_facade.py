@@ -19,6 +19,7 @@ from enum import Enum
 from typing import Callable, List
 
 from model_compression_toolkit.core.common import Graph, Logger
+from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 from model_compression_toolkit.core.common.mixed_precision.kpi import KPI, KPITarget
 from model_compression_toolkit.core.common.mixed_precision.kpi_aggregation_methods import MpKpiAggregation
 from model_compression_toolkit.core.common.mixed_precision.kpi_methods import MpKpiMetric
@@ -46,11 +47,13 @@ search_methods = {
 # a matching pair of kpi computation function and a kpi aggregation function should be added to this dictionary
 kpi_functions_factory = {KPITarget.WEIGHTS: (MpKpiMetric.WEIGHTS_SIZE, MpKpiAggregation.SUM),
                          KPITarget.ACTIVATION: (MpKpiMetric.ACTIVATION_OUTPUT_SIZE, MpKpiAggregation.MAX),
-                         KPITarget.TOTAL: (MpKpiMetric.TOTAL_WEIGHTS_ACTIVATION_SIZE, MpKpiAggregation.TOTAL)}
+                         KPITarget.TOTAL: (MpKpiMetric.TOTAL_WEIGHTS_ACTIVATION_SIZE, MpKpiAggregation.TOTAL),
+                         KPITarget.BOPS: (MpKpiMetric.BOPS_COUNT, MpKpiAggregation.SUM)}
 
 
 def search_bit_width(graph_to_search_cfg: Graph,
                      fw_info: FrameworkInfo,
+                     fw_impl: FrameworkImplementation,
                      target_kpi: KPI,
                      sensitivity_evaluator: SensitivityEvaluation = None,
                      search_method: BitWidthSearchMethod = BitWidthSearchMethod.INTEGER_PROGRAMMING) -> List[int]:
@@ -90,6 +93,7 @@ def search_bit_width(graph_to_search_cfg: Graph,
     # Instantiate a manager object
     search_manager = MixedPrecisionSearchManager(graph,
                                                  fw_info,
+                                                 fw_impl,
                                                  sensitivity_evaluator,
                                                  kpi_functions)
 

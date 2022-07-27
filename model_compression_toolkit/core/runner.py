@@ -112,6 +112,7 @@ def core_runner(in_model: Any,
         if core_config.mixed_precision_config.configuration_overwrite is None:
             bit_widths_config = search_bit_width(tg,
                                                  fw_info,
+                                                 fw_impl,
                                                  target_kpi,
                                                  fw_impl.get_sensitivity_evaluator(
                                                      tg,

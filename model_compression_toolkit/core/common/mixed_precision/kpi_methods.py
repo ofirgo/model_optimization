@@ -20,10 +20,16 @@ import numpy as np
 
 from model_compression_toolkit import FrameworkInfo
 from model_compression_toolkit.core.common import Graph
-from model_compression_toolkit.core.common.constants import BITS_TO_BYTES
+from model_compression_toolkit.core.common.constants import BITS_TO_BYTES, FLOAT_BITWIDTH
+from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
+from model_compression_toolkit.core.common.graph.edge import EDGE_SINK_INDEX
+from model_compression_toolkit.core.common.logger import Logger
 
 
-def weights_size_kpi(mp_cfg: List[int], graph: Graph, fw_info: FrameworkInfo) -> np.ndarray:
+def weights_size_kpi(mp_cfg: List[int],
+                     graph: Graph,
+                     fw_info: FrameworkInfo,
+                     fw_impl: FrameworkImplementation) -> np.ndarray:
     """
     Computes a KPIs vector with the respective weights' memory size for each weight configurable node,
     according to the given mixed-precision configuration.
@@ -57,7 +63,10 @@ def weights_size_kpi(mp_cfg: List[int], graph: Graph, fw_info: FrameworkInfo) ->
     return np.array(weights_memory)
 
 
-def activation_output_size_kpi(mp_cfg: List[int], graph: Graph, fw_info: FrameworkInfo) -> np.ndarray:
+def activation_output_size_kpi(mp_cfg: List[int],
+                               graph: Graph,
+                               fw_info: FrameworkInfo,
+                               fw_impl: FrameworkImplementation) -> np.ndarray:
     """
     Computes a KPIs vector with the respective output memory size for each activation configurable node,
     according to the given mixed-precision configuration.
@@ -89,7 +98,10 @@ def activation_output_size_kpi(mp_cfg: List[int], graph: Graph, fw_info: Framewo
     return np.array(activation_memory)
 
 
-def total_weights_activation_kpi(mp_cfg: List[int], graph: Graph, fw_info: FrameworkInfo) -> np.ndarray:
+def total_weights_activation_kpi(mp_cfg: List[int],
+                                 graph: Graph,
+                                 fw_info: FrameworkInfo,
+                                 fw_impl: FrameworkImplementation) -> np.ndarray:
     """
     Computes KPIs tensor with the respective weights size and output memory size for each activation configurable node,
     according to the given mixed-precision configuration.
@@ -131,6 +143,64 @@ def total_weights_activation_kpi(mp_cfg: List[int], graph: Graph, fw_info: Frame
     return np.array(weights_activation_memory)
 
 
+def bops_kpi(mp_cfg: List[int],
+             graph: Graph,
+             fw_info: FrameworkInfo,
+             fw_impl: FrameworkImplementation) -> np.ndarray:
+    """
+    Computes a KPIs vector with the respective bit-operations (BOPS) count for each configurable node,
+    according to the given mixed-precision configuration.
+
+    Args:
+        mp_cfg: A mixed-precision configuration (list of candidates index for each configurable node)
+        graph: Graph object.
+        fw_info: FrameworkInfo object about the specific framework (e.g., attributes of different layers' weights to quantize).
+
+    Returns: A vector of node's BOPS count.
+    Note that the vector is not necessarily of the same length as the given config.
+
+    """
+
+    bops = []
+
+    # Go over all nodes that should be taken into consideration when computing the BOPS KPI.
+    mp_nodes = graph.get_configurable_sorted_nodes_names()
+    for n in graph.get_sorted_weights_configurable_nodes():
+        if n.has_weights_to_quantize(fw_info):
+            # If node doesn't have weights then its MAC count is 0, and we shouldn't consider it in the BOPS count.
+            incoming_edges = graph.incoming_edges(n, sort_by_attr=EDGE_SINK_INDEX)
+            if len(incoming_edges) == 1:
+                Logger.critical(f"Can't compute BOPS metric for node {n.name} with multiple inputs.")
+
+            input_activation_node = incoming_edges[0].source_node
+            input_activation_node_cfg = _get_node_cfg(input_activation_node, mp_cfg, mp_nodes)
+
+            node_mac = fw_impl.get_node_mac_operations(n, fw_info)
+
+            node_idx = mp_nodes.index(n.name)
+            node_qc = n.candidates_quantization_cfg[mp_cfg[node_idx]]
+            node_weights_nbits = node_qc.weights_quantization_cfg.weights_n_bits if \
+                node_qc.weights_quantization_cfg.enable_weights_quantization else FLOAT_BITWIDTH
+            input_activation_nbits = input_activation_node_cfg.activation_quantization_cfg.activation_n_bits if \
+                node_qc.activation_quantization_cfg.enable_activation_quantization else FLOAT_BITWIDTH
+
+            node_bops = node_weights_nbits * input_activation_nbits * node_mac
+            bops.append(node_bops)
+
+    return np.array(bops)
+
+
+def _get_node_cfg(node, mp_cfg, sorted_configurable_nodes_names):
+    if node.name in sorted_configurable_nodes_names:
+        node_idx = sorted_configurable_nodes_names.index(node.name)
+        node_qc = node.candidates_quantization_cfg[mp_cfg[node_idx]]
+    else:
+        assert len(node.candidates_quantization_cfg) == 1, \
+            "Non-configurable node should have a single configuration candidate"
+        node_qc = node.candidates_quantization_cfg[0]
+    return node_qc
+
+
 class MpKpiMetric(Enum):
     """
     Defines kpi computation functions that can be used to compute KPI for a given target for a given mp config.
@@ -147,6 +217,7 @@ class MpKpiMetric(Enum):
     WEIGHTS_SIZE = partial(weights_size_kpi)
     ACTIVATION_OUTPUT_SIZE = partial(activation_output_size_kpi)
     TOTAL_WEIGHTS_ACTIVATION_SIZE = partial(total_weights_activation_kpi)
+    BOPS_COUNT = partial(bops_kpi)
 
     def __call__(self, *args):
         return self.value(*args)
