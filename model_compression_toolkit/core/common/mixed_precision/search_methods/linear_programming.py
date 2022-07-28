@@ -179,7 +179,7 @@ def _formalize_problem(layer_to_indicator_vars_mapping: Dict[int, Dict[int, LpVa
         if not np.isinf(target_kpi.bops):
             _add_set_of_kpi_constraints(search_manager=search_manager,
                                         target=KPITarget.BOPS,
-                                        target_kpi_value=target_kpi.total_memory,
+                                        target_kpi_value=target_kpi.bops,
                                         indicators_matrix=indicators_matrix,
                                         lp_problem=lp_problem)
 

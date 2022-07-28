@@ -169,7 +169,7 @@ def bops_kpi(mp_cfg: List[int],
         if n.has_weights_to_quantize(fw_info):
             # If node doesn't have weights then its MAC count is 0, and we shouldn't consider it in the BOPS count.
             incoming_edges = graph.incoming_edges(n, sort_by_attr=EDGE_SINK_INDEX)
-            if len(incoming_edges) == 1:
+            if len(incoming_edges) != 1:
                 Logger.critical(f"Can't compute BOPS metric for node {n.name} with multiple inputs.")
 
             input_activation_node = incoming_edges[0].source_node
@@ -182,7 +182,7 @@ def bops_kpi(mp_cfg: List[int],
             node_weights_nbits = node_qc.weights_quantization_cfg.weights_n_bits if \
                 node_qc.weights_quantization_cfg.enable_weights_quantization else FLOAT_BITWIDTH
             input_activation_nbits = input_activation_node_cfg.activation_quantization_cfg.activation_n_bits if \
-                node_qc.activation_quantization_cfg.enable_activation_quantization else FLOAT_BITWIDTH
+                input_activation_node_cfg.activation_quantization_cfg.enable_activation_quantization else FLOAT_BITWIDTH
 
             node_bops = node_weights_nbits * input_activation_nbits * node_mac
             bops.append(node_bops)

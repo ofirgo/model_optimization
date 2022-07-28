@@ -478,7 +478,7 @@ class KerasImplementation(FrameworkImplementation):
         kernel_shape = node.get_weights_by_keys(fw_info.get_kernel_op_attributes(node.type)[0]).shape
         output_channel_axis, input_channel_axis = fw_info.kernel_channels_mapping.get(node.type)
 
-        if node.type is Conv2D or Conv2DTranspose:
+        if node.type is Conv2D or node.type is Conv2DTranspose:
             # (C_out * W_out * H_out) * C_in * (W_kernel * H_kernel)
             return np.prod([x for x in output_shape if x is not None]) * \
                    input_shape[input_channel_axis] * \
@@ -486,7 +486,8 @@ class KerasImplementation(FrameworkImplementation):
         elif node.type is DepthwiseConv2D:
             # Depth * (W_out * H_out) * C_in * (W_kernel * H_kernel)
             # TODO: how to get depth multiplier?
-            return fw_info.kernel_ops_attributes_mapping.get(node.type).get(DEPTH_MULTIPLIER) * \
+            return node.framework_attr.get(DEPTH_MULTIPLIER) * \
+                   np.prod([x for x in output_shape if x is not None]) / output_shape[output_channel_axis] * \
                    input_shape[input_channel_axis] * \
                    (kernel_shape[0] * kernel_shape[1])
         elif node.type is Dense:
