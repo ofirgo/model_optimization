@@ -19,11 +19,9 @@ import numpy as np
 
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 from model_compression_toolkit.core.common.graph.base_graph import Graph
-from model_compression_toolkit.core.common.mixed_precision.kpi import KPITarget
-from model_compression_toolkit.core.common.mixed_precision.kpi_aggregation_methods import MpKpiAggregation
-from model_compression_toolkit.core.common.mixed_precision.kpi_methods import MpKpiMetric
-from model_compression_toolkit.core.common.mixed_precision.mixed_precision_quantization_config import \
-    MixedPrecisionQuantizationConfigV2
+from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import KPITarget
+from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_aggregation_methods import MpKpiAggregation
+from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_methods import MpKpiMetric
 from model_compression_toolkit.core.common.framework_info import FrameworkInfo
 from model_compression_toolkit.core.common.mixed_precision.sensitivity_evaluation import SensitivityEvaluation
 
