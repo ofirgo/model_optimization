@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 from enum import Enum
+from typing import Dict
 
 import numpy as np
 
@@ -75,3 +76,16 @@ class KPI:
                 KPITarget.ACTIVATION: self.activation_memory,
                 KPITarget.TOTAL: self.total_memory,
                 KPITarget.BOPS: self.bops}
+
+    def set_kpi_by_target(self, kpis_mapping: Dict[KPITarget, float]):
+        """
+        Setting a KPI object values for each KPI target in the given dictionary.
+
+        Args:
+            kpis_mapping: A mapping from a KPITarget to a matching KPI value.
+
+        """
+        self.weights_memory = kpis_mapping.get(KPITarget.WEIGHTS, np.inf)
+        self.activation_memory = kpis_mapping.get(KPITarget.ACTIVATION, np.inf)
+        self.total_memory = kpis_mapping.get(KPITarget.TOTAL, np.inf)
+        self.bops = kpis_mapping.get(KPITarget.BOPS, np.inf)
