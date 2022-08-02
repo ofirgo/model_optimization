@@ -73,6 +73,16 @@ def mp_integer_programming_search(search_manager: MixedPrecisionSearchManager,
          in layer_to_indicator_vars_mapping.values()]
     ).flatten()
 
+    # for kt, kv in target_kpi.get_kpi_dict().items():
+    #     # Verify that the returned solution holds the KPI constraints
+    #     assert kv == np.inf or search_manager.compute_kpi_functions[kt][1](  # KPI aggregation
+    #                             search_manager.compute_kpi_functions[kt][0](config,  # KPI method
+    #                                                                         search_manager.graph,
+    #                                                                         search_manager.fw_info,
+    #                                                                         search_manager.fw_impl,
+    #                                                                         set_constraint=False))[0] <= kv, \
+    #         f"Returned bit-width configuration does not hold the required KPI constraints for target KPI: {kt}"
+
     return config
 
 

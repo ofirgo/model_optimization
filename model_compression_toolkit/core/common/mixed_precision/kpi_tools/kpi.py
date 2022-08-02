@@ -69,3 +69,9 @@ class KPI:
                f"Activation_memory: {self.activation_memory}, " \
                f"Total_memory: {self.total_memory}, " \
                f"BOPS: {self.bops}"
+
+    def get_kpi_dict(self):
+        return {KPITarget.WEIGHTS: self.weights_memory,
+                KPITarget.ACTIVATION: self.activation_memory,
+                KPITarget.TOTAL: self.total_memory,
+                KPITarget.BOPS: self.bops}

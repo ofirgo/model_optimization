@@ -145,7 +145,7 @@ def compute_total_bops(graph: Graph, fw_info: FrameworkInfo, fw_impl: FrameworkI
     bops = []
 
     # Go over all configurable nodes that have kernels.
-    for n in graph.get_sorted_weights_configurable_nodes():
+    for n in graph.get_topo_sorted_nodes():
         if n.has_weights_to_quantize(fw_info):
             # If node doesn't have weights then its MAC count is 0, and we shouldn't consider it in the BOPS count.
             incoming_edges = graph.incoming_edges(n, sort_by_attr=EDGE_SINK_INDEX)

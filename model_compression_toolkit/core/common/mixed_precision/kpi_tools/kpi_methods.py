@@ -167,7 +167,7 @@ def bops_kpi(mp_cfg: List[int],
 
     # Go over all nodes that should be taken into consideration when computing the BOPS KPI.
     mp_nodes = graph.get_configurable_sorted_nodes_names()
-    for n in graph.get_sorted_weights_configurable_nodes():
+    for n in graph.get_topo_sorted_nodes():
         if n.has_weights_to_quantize(fw_info):
             # If node doesn't have weights then its MAC count is 0, and we shouldn't consider it in the BOPS count.
             incoming_edges = graph.incoming_edges(n, sort_by_attr=EDGE_SINK_INDEX)
@@ -179,8 +179,9 @@ def bops_kpi(mp_cfg: List[int],
 
             node_mac = fw_impl.get_node_mac_operations(n, fw_info)
 
-            node_idx = mp_nodes.index(n.name)
-            node_qc = n.candidates_quantization_cfg[mp_cfg[node_idx]]
+            # node_idx = mp_nodes.index(n.name)
+            # node_qc = n.candidates_quantization_cfg[mp_cfg[node_idx]]
+            node_qc = _get_node_cfg(n, mp_cfg, mp_nodes)
             node_weights_nbits = node_qc.weights_quantization_cfg.weights_n_bits if \
                 node_qc.weights_quantization_cfg.enable_weights_quantization else FLOAT_BITWIDTH
             input_activation_nbits = input_activation_node_cfg.activation_quantization_cfg.activation_n_bits if \
@@ -197,8 +198,8 @@ def _get_node_cfg(node, mp_cfg, sorted_configurable_nodes_names):
         node_idx = sorted_configurable_nodes_names.index(node.name)
         node_qc = node.candidates_quantization_cfg[mp_cfg[node_idx]]
     else:
-        assert len(node.candidates_quantization_cfg) == 1, \
-            "Non-configurable node should have a single configuration candidate"
+        assert len(node.candidates_quantization_cfg) > 0, \
+            "Any node should have at least one candidate configuration."
         node_qc = node.candidates_quantization_cfg[0]
     return node_qc
 
