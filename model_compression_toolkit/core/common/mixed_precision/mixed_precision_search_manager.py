@@ -17,6 +17,7 @@ from typing import Callable, Tuple
 from typing import Dict, List
 import numpy as np
 
+from model_compression_toolkit.core.common import BaseNode
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 from model_compression_toolkit.core.common.graph.base_graph import Graph
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import KPITarget
@@ -61,6 +62,8 @@ class MixedPrecisionSearchManager:
         self.max_kpi_config = self.graph.get_max_candidates_config()
 
         self.min_kpi = self.compute_min_kpis()
+
+        self.configurable_sorted_nodes_names = self.graph.get_configurable_sorted_nodes_names()
 
     def get_search_space(self) -> Dict[int, List[int]]:
         """
@@ -110,7 +113,7 @@ class MixedPrecisionSearchManager:
 
         return min_kpis
 
-    def compute_kpi_matrix(self, target: KPITarget) -> np.ndarray:
+    def compute_kpi_matrix(self, target: KPITarget, nodes_to_compute_matrix: List[List[BaseNode]]) -> np.ndarray:
         """
         Computes and builds a KPIs matrix, to be used for the mixed-precision search problem formalization.
         The matrix is constructed as follows (for a given target):
@@ -122,18 +125,31 @@ class MixedPrecisionSearchManager:
 
         Args:
             target: The target for which the KPI is calculated (a KPITarget value).
+            nodes_to_compute_matrix: List of subsets of configurable nodes indices. For each subset of nodes the KPI
+                matrix will include the KPIs results for all combinations of the nodes candidates.
 
         Returns: A KPI matrix.
 
         """
         assert isinstance(target, KPITarget), f"{target} is not a valid KPI target"
 
-        configurable_sorted_nodes = self.graph.get_configurable_sorted_nodes()
-
         kpi_matrix = []
-        for c, c_n in enumerate(configurable_sorted_nodes):
-            for candidate_idx in range(len(c_n.candidates_quantization_cfg)):
-                candidate_kpis = self.compute_candidate_relative_kpis(c, candidate_idx, target)
+        # for c, c_n in enumerate(configurable_sorted_nodes):
+        # for nodes_idxs in nodes_to_compute_matrix:
+        for nodes in nodes_to_compute_matrix:
+            # nodes = [configurable_sorted_nodes[idx] for idx in nodes_idxs]
+            candidates_combinations = self.graph.get_nodes_candidates_combinations(nodes)
+            for cc in candidates_combinations:
+                # TODO: remove duplicate computations for BOPS cases where second node (Conv) has multiple candidates
+                #   with the same weights bitwidth but different activation bitwidth (all will have the same BOPS count)
+
+                # nodes_idx_to_bitwidth_idx = {nodes_idxs[i]: cc[i] for i in range(len(nodes))}
+
+                nodes_idx_to_bitwidth_idx = {self.configurable_sorted_nodes_names.index(n.name): cc[i]
+                                             for i, n in enumerate(nodes) if n.name in
+                                             self.configurable_sorted_nodes_names}
+
+                candidate_kpis = self.compute_candidate_relative_kpis(nodes_idx_to_bitwidth_idx, target)
                 kpi_matrix.append(np.asarray(candidate_kpis))
 
         # We need to transpose the calculated kpi matrix to allow later multiplication with
@@ -145,8 +161,7 @@ class MixedPrecisionSearchManager:
         return np.moveaxis(np_kpi_matrix, source=0, destination=len(np_kpi_matrix.shape) - 1)
 
     def compute_candidate_relative_kpis(self,
-                                        conf_node_idx: int,
-                                        candidate_idx: int,
+                                        nodes_idx_to_bitwidth_idx: Dict[int, int],
                                         target: KPITarget) -> np.ndarray:
         """
         Computes a KPIs vector for a given candidates of a given configurable node, i.e., the matching KPI vector
@@ -162,7 +177,7 @@ class MixedPrecisionSearchManager:
         Returns: Normalized node's KPIs vector
 
         """
-        return self.compute_node_kpi_for_candidate(conf_node_idx, candidate_idx, target) - \
+        return self.compute_node_kpi_for_candidate(nodes_idx_to_bitwidth_idx, target) - \
                self.get_min_target_kpi(target)
 
     def get_min_target_kpi(self, target: KPITarget) -> np.ndarray:
@@ -177,7 +192,9 @@ class MixedPrecisionSearchManager:
         """
         return self.min_kpi[target]
 
-    def compute_node_kpi_for_candidate(self, conf_node_idx: int, candidate_idx: int, target: KPITarget) -> np.ndarray:
+    def compute_node_kpi_for_candidate(self,
+                                       nodes_idx_to_bitwidth_idx: Dict[int, int],
+                                       target: KPITarget) -> np.ndarray:
         """
         Computes a KPIs vector after replacing the given node's configuration candidate in the minimal
         target configuration with the given candidate index.
@@ -193,14 +210,14 @@ class MixedPrecisionSearchManager:
         return self.compute_kpi_functions[target][0](
             self.replace_config_in_index(
                 self.min_kpi_config,
-                conf_node_idx,
-                candidate_idx),
+                nodes_idx_to_bitwidth_idx),
             self.graph,
             self.fw_info,
             self.fw_impl)
 
     @staticmethod
-    def replace_config_in_index(mp_cfg: List[int], idx: int, value: int) -> List[int]:
+    def replace_config_in_index(mp_cfg: List[int],
+                                nodes_idx_to_bitwidth_idx: Dict[int, int]) -> List[int]:
         """
         Replacing the quantization configuration candidate in a given mixed-precision configuration at the given
         index (node's index) with the given value (candidate index).
@@ -214,5 +231,6 @@ class MixedPrecisionSearchManager:
 
         """
         updated_cfg = mp_cfg.copy()
-        updated_cfg[idx] = value
+        for node_idx, bitwidth_idx in nodes_idx_to_bitwidth_idx.items():
+            updated_cfg[node_idx] = bitwidth_idx
         return updated_cfg

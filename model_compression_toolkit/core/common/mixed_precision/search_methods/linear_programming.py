@@ -18,7 +18,8 @@ from pulp import *
 from tqdm import tqdm
 from typing import Dict, List, Tuple, Callable
 
-from model_compression_toolkit.core.common import Logger
+from model_compression_toolkit import FrameworkInfo
+from model_compression_toolkit.core.common import Logger, BaseNode, Graph
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import KPI, KPITarget
 from model_compression_toolkit.core.common.mixed_precision.mixed_precision_search_manager import MixedPrecisionSearchManager
 
@@ -157,40 +158,51 @@ def _formalize_problem(layer_to_indicator_vars_mapping: Dict[int, Dict[int, LpVa
     # Bound the feasible solution space with the desired KPI.
     # Creates separate constraints for weights KPI and activation KPI.
     if target_kpi is not None:
+        # TODO: combine independent indicators matrix builder with subsets indicators builder (for subsets of size 1) and pass relevant nodes_to_compute_kpi
         indicators = []
         for layer in layer_to_metrics_mapping.keys():
             for _, indicator in layer_to_indicator_vars_mapping[layer].items():
                 indicators.append(indicator)
 
         indicators_arr = np.array(indicators)
-        indicators_matrix = np.diag(indicators_arr)
-
+        independent_indicators_matrix = np.diag(indicators_arr)
+        memory_kpis_nodes = [[n] for n in search_manager.graph.get_configurable_sorted_nodes()]
         if not np.isinf(target_kpi.weights_memory):
             _add_set_of_kpi_constraints(search_manager=search_manager,
                                         target=KPITarget.WEIGHTS,
                                         target_kpi_value=target_kpi.weights_memory,
-                                        indicators_matrix=indicators_matrix,
+                                        indicators_matrix=independent_indicators_matrix,
+                                        nodes_to_compute_matrix=memory_kpis_nodes,
                                         lp_problem=lp_problem)
 
         if not np.isinf(target_kpi.activation_memory):
             _add_set_of_kpi_constraints(search_manager=search_manager,
                                         target=KPITarget.ACTIVATION,
                                         target_kpi_value=target_kpi.activation_memory,
-                                        indicators_matrix=indicators_matrix,
+                                        indicators_matrix=independent_indicators_matrix,
+                                        nodes_to_compute_matrix=memory_kpis_nodes,
                                         lp_problem=lp_problem)
 
         if not np.isinf(target_kpi.total_memory):
             _add_set_of_kpi_constraints(search_manager=search_manager,
                                         target=KPITarget.TOTAL,
                                         target_kpi_value=target_kpi.total_memory,
-                                        indicators_matrix=indicators_matrix,
+                                        indicators_matrix=independent_indicators_matrix,
+                                        nodes_to_compute_matrix=memory_kpis_nodes,
                                         lp_problem=lp_problem)
 
         if not np.isinf(target_kpi.bops):
+            bops_kpis_nodes = _build_bops_kpi_nodes_lists(search_manager.graph, search_manager.fw_info,
+                                                          search_manager.configurable_sorted_nodes_names)
+            subsets_indicators_arr = _build_subsets_indicators_matrix(layer_to_indicator_vars_mapping,
+                                                                      bops_kpis_nodes,
+                                                                      search_manager.graph,
+                                                                      search_manager.configurable_sorted_nodes_names)
             _add_set_of_kpi_constraints(search_manager=search_manager,
                                         target=KPITarget.BOPS,
                                         target_kpi_value=target_kpi.bops,
-                                        indicators_matrix=indicators_matrix,
+                                        indicators_matrix=np.diag(subsets_indicators_arr),
+                                        nodes_to_compute_matrix=bops_kpis_nodes,
                                         lp_problem=lp_problem)
 
     else:
@@ -203,9 +215,10 @@ def _add_set_of_kpi_constraints(search_manager: MixedPrecisionSearchManager,
                                 target: KPITarget,
                                 target_kpi_value: float,
                                 indicators_matrix: np.ndarray,
+                                nodes_to_compute_matrix: List[List[BaseNode]],
                                 lp_problem: LpProblem):
 
-    kpi_matrix = search_manager.compute_kpi_matrix(target)
+    kpi_matrix = search_manager.compute_kpi_matrix(target, nodes_to_compute_matrix)
     indicated_kpi_matrix = np.matmul(kpi_matrix, indicators_matrix)
     # Need to re-organize the tensor such that the configurations' axis will be second,
     # and all metric values' axis will come afterword
@@ -329,3 +342,33 @@ def _compute_kpis(node_to_bitwidth_indices: Dict[int, List[int]],
             )
 
     return layer_to_kpi_mapping, minimal_kpi
+
+
+def _build_bops_kpi_nodes_lists(graph: Graph, fw_info: FrameworkInfo, configurable_nodes_names: List[str]):
+    bops_kpi_nodes = []
+    for n in graph.get_topo_sorted_nodes():
+        if n.has_weights_to_quantize(fw_info):
+            predecessor = graph.get_prev_nodes(n)
+            assert len(predecessor) == 1, "Linear operation layer should have only one direct predecessor."
+            if n.name in configurable_nodes_names or predecessor[0].name in configurable_nodes_names:
+                bops_kpi_nodes.append([predecessor[0], n])
+    return bops_kpi_nodes
+
+
+def _build_subsets_indicators_matrix(layer_to_indicator_vars_mapping: Dict,
+                                     nodes_to_compute_matrix: List[List[BaseNode]],
+                                     graph: Graph,
+                                     configurable_nodes_names: List[str]):
+    indicators_subsets = []
+    for nodes in nodes_to_compute_matrix:
+        candidates_combinations = graph.get_nodes_candidates_combinations(nodes)
+        for cc in candidates_combinations:
+            nodes_idx_to_bitwidth_idx = {configurable_nodes_names.index(n.name): cc[i] for i, n in enumerate(nodes)
+                                         if n.name in configurable_nodes_names}
+
+            ind_mult = 1
+            for node_idx, cfg_idx in nodes_idx_to_bitwidth_idx.items():
+                ind_mult *= layer_to_indicator_vars_mapping[node_idx][cfg_idx]
+            indicators_subsets.append(ind_mult)
+
+    return np.array(indicators_subsets)

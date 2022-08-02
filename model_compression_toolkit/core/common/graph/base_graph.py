@@ -19,6 +19,7 @@ from typing import List, Tuple
 
 import networkx as nx
 import numpy as np
+import itertools
 
 from networkx.algorithms.dag import topological_sort
 
@@ -646,3 +647,8 @@ class Graph(nx.MultiDiGraph, GraphSearches):
         """
         sorted_conf_activation = self.get_sorted_activation_configurable_nodes()
         return [(n, n.final_activation_quantization_cfg.activation_n_bits) for n in sorted_conf_activation]
+
+    def get_nodes_candidates_combinations(self, nodes: List[BaseNode]) -> List[Tuple[int]]:
+        nodes_candidates = [range(len(n.candidates_quantization_cfg)) for n in nodes]
+
+        return list(itertools.product(*nodes_candidates))
