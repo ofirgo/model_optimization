@@ -17,6 +17,7 @@
 import os
 from typing import Callable, Tuple, Any, List, Dict
 from tqdm import tqdm
+import numpy as np
 
 from model_compression_toolkit.core import common
 from model_compression_toolkit.core.common import Logger
@@ -109,15 +110,27 @@ def core_runner(in_model: Any,
     if target_kpi is not None:
         assert core_config.mixed_precision_enable
         if core_config.mixed_precision_config.configuration_overwrite is None:
-            bit_widths_config = search_bit_width(tg,
+
+            mp_graph = tg
+            if target_kpi.bops < np.inf:
+                # Since Bit-operations count target KPI is set, we need to reconstruct the graph for the MP search
+                mp_graph = substitute(tg, fw_impl.get_substitutions_virtual_weights_activation_coupling())
+
+            bit_widths_config = search_bit_width(mp_graph,
                                                  fw_info,
                                                  fw_impl,
                                                  target_kpi,
                                                  fw_impl.get_sensitivity_evaluator(
-                                                     tg,
+                                                     mp_graph,
                                                      core_config.mixed_precision_config,
                                                      representative_data_gen=representative_data_gen,
                                                      fw_info=fw_info))
+            if target_kpi.bops < np.inf:
+                # Since Bit-operations count target KPI is set,
+                # we need to project the result config onto the original graph
+                # TODO: implement
+                pass
+
         else:
             Logger.warning(
                 f'Mixed Precision has overwrite bit-width configuration{core_config.mixed_precision_config.configuration_overwrite}')

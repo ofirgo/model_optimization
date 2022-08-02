@@ -363,3 +363,19 @@ class BaseNode:
                 max_candidates.append((i, c))
 
         return [i for i, a_n_bits in max_candidates]
+
+    def get_unique_weights_candidates(self):
+        unique_candidates = copy.deepcopy(self.candidates_quantization_cfg)
+        seen_candidates = set()
+        unique_candidates = [candidate for candidate in unique_candidates if
+                             candidate.weights_quantization_cfg not in seen_candidates
+                             and not seen_candidates.add(candidate.weights_quantization_cfg)]
+        return unique_candidates
+
+    def get_unique_activation_candidates(self):
+        unique_candidates = copy.deepcopy(self.candidates_quantization_cfg)
+        seen_candidates = set()
+        unique_candidates = [candidate for candidate in unique_candidates if
+                             candidate.activation_quantization_cfg not in seen_candidates
+                             and not seen_candidates.add(candidate.activation_quantization_cfg)]
+        return unique_candidates

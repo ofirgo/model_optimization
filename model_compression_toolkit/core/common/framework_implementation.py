@@ -248,6 +248,11 @@ class FrameworkImplementation(ABC):
                              f'framework\'s get_substitutions_post_statistics_collection method.')
 
     @abstractmethod
+    def get_substitutions_virtual_weights_activation_coupling(self) -> List[common.BaseSubstitution]:
+        raise NotImplemented(f'{self.__class__.__name__} have to implement the '
+                             f'framework\'s get_substitutions_virtual_weights_activation_coupling method.')
+
+    @abstractmethod
     def get_gptq_trainer_obj(self):
         """
         Returns: GPTQTrainer object
