@@ -153,13 +153,13 @@ def create_node_qc_candidate(qc: QuantizationConfig,
 
     activation_quantization_params_fn = get_activation_quantization_params_fn(op_cfg.activation_quantization_method)
 
-    return CandidateNodeQuantizationConfig(qc,
-                                           op_cfg,
-                                           activation_quantization_fn,
-                                           activation_quantization_params_fn,
-                                           weights_quantization_fn,
-                                           weights_quantization_params_fn,
-                                           weight_channel_axis)
+    return CandidateNodeQuantizationConfig(qc=qc,
+                                           op_cfg=op_cfg,
+                                           activation_quantization_fn=activation_quantization_fn,
+                                           activation_quantization_params_fn=activation_quantization_params_fn,
+                                           weights_quantization_fn=weights_quantization_fn,
+                                           weights_quantization_params_fn=weights_quantization_params_fn,
+                                           weight_channel_axis=weight_channel_axis)
 
 
 def _create_node_candidates_qc(qc: QuantizationConfig,
