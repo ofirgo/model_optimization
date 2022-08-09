@@ -47,9 +47,7 @@ def mp_integer_programming_search(search_manager: MixedPrecisionSearchManager,
 
     # Build a mapping from each layer's index (in the model) to a dictionary that maps the
     # bitwidth index to the observed sensitivity of the model when using that bitwidth for that layer.
-    layer_to_metrics_mapping = _build_layer_to_metrics_mapping(search_manager.layer_to_bitwidth_mapping,
-                                                               search_manager.compute_metric_fn,
-                                                               search_manager.max_kpi_config)
+    layer_to_metrics_mapping = _build_layer_to_metrics_mapping(search_manager, target_kpi)
 
     # Init variables to find their values when solving the lp problem.
     layer_to_indicator_vars_mapping, layer_to_objective_vars_mapping = _init_problem_vars(layer_to_metrics_mapping)
@@ -73,17 +71,10 @@ def mp_integer_programming_search(search_manager: MixedPrecisionSearchManager,
          in layer_to_indicator_vars_mapping.values()]
     ).flatten()
 
-    # for kt, kv in target_kpi.get_kpi_dict().items():
-    #     # Verify that the returned solution holds the KPI constraints
-    #     assert kv == np.inf or search_manager.compute_kpi_functions[kt][1](  # KPI aggregation
-    #                             search_manager.compute_kpi_functions[kt][0](config,  # KPI method
-    #                                                                         search_manager.graph,
-    #                                                                         search_manager.fw_info,
-    #                                                                         search_manager.fw_impl,
-    #                                                                         set_constraint=False))[0] <= kv, \
-    #         f"Returned bit-width configuration does not hold the required KPI constraints for target KPI: {kt}"
-
-    return config
+    if target_kpi.bops < np.inf:
+        return search_manager.reconstruct_config_from_virtual_graph(config)
+    else:
+        return config
 
 
 def _init_problem_vars(layer_to_metrics_mapping: Dict[int, Dict[int, float]]) -> Tuple[
@@ -226,9 +217,8 @@ def _add_set_of_kpi_constraints(search_manager: MixedPrecisionSearchManager,
         lp_problem += v <= target_kpi_value
 
 
-def _build_layer_to_metrics_mapping(node_to_bitwidth_indices: Dict[int, List[int]],
-                                    compute_metric_fn: Callable,
-                                    max_config: List[int]) -> Dict[int, Dict[int, float]]:
+def _build_layer_to_metrics_mapping(search_manager: MixedPrecisionSearchManager,
+                                    target_kpi: KPI) -> Dict[int, Dict[int, float]]:
     """
     This function measures the sensitivity of a change in a bitwidth of a layer on the entire model.
     It builds a mapping from a node's index, to its bitwidht's effect on the model sensitivity.
@@ -251,26 +241,46 @@ def _build_layer_to_metrics_mapping(node_to_bitwidth_indices: Dict[int, List[int
     Logger.info('Starting to evaluate metrics')
     layer_to_metrics_mapping = {}
 
-    max_config_value = compute_metric_fn(max_config)
+    is_bops_target_kpi = target_kpi.bops < np.inf
 
-    for node_idx, layer_possible_bitwidths_indices in tqdm(node_to_bitwidth_indices.items(),
-                                                           total=len(node_to_bitwidth_indices)):
+    if is_bops_target_kpi:
+        origin_max_config = search_manager.reconstruct_config_from_virtual_graph(search_manager.max_kpi_config)
+        max_config_value = search_manager.compute_metric_fn(origin_max_config)
+    else:
+        max_config_value = search_manager.compute_metric_fn(search_manager.max_kpi_config)
+
+    for node_idx, layer_possible_bitwidths_indices in tqdm(search_manager.layer_to_bitwidth_mapping.items(),
+                                                           total=len(search_manager.layer_to_bitwidth_mapping)):
         layer_to_metrics_mapping[node_idx] = {}
 
         for bitwidth_idx in layer_possible_bitwidths_indices:
-            if max_config[node_idx] == bitwidth_idx:
+            if search_manager.max_kpi_config[node_idx] == bitwidth_idx:
                 # This is a computation of the metric for the max configuration, assign pre-calculated value
                 layer_to_metrics_mapping[node_idx][bitwidth_idx] = max_config_value
                 continue
 
             # Create a configuration that differs at one layer only from the baseline model
-            mp_model_configuration = max_config.copy()
+            mp_model_configuration = search_manager.max_kpi_config.copy()
             mp_model_configuration[node_idx] = bitwidth_idx
 
             # Build a distance matrix using the function we got from the framework implementation.
-            layer_to_metrics_mapping[node_idx][bitwidth_idx] = compute_metric_fn(mp_model_configuration,
-                                                                                 [node_idx],
-                                                                                 max_config)
+            if is_bops_target_kpi:
+                # Reconstructing original graph's configuration from virtual graph's configuration
+                origin_mp_model_configuration = \
+                    search_manager.reconstruct_config_from_virtual_graph(mp_model_configuration)
+                origin_changed_nodes_indices = [i for i, c in enumerate(origin_max_config) if
+                                                c != origin_mp_model_configuration[i]]
+                layer_to_metrics_mapping[node_idx][bitwidth_idx] = search_manager.compute_metric_fn(
+                    origin_mp_model_configuration,
+                    origin_changed_nodes_indices,
+                    origin_max_config)
+            else:
+                layer_to_metrics_mapping[node_idx][bitwidth_idx] = search_manager.compute_metric_fn(
+                    mp_model_configuration,
+                    [node_idx],
+                    search_manager.max_kpi_config)
+
+
 
     return layer_to_metrics_mapping
 

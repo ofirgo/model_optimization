@@ -46,7 +46,8 @@ def search_bit_width(graph_to_search_cfg: Graph,
                      fw_impl: FrameworkImplementation,
                      target_kpi: KPI,
                      sensitivity_evaluator: SensitivityEvaluation = None,
-                     search_method: BitWidthSearchMethod = BitWidthSearchMethod.INTEGER_PROGRAMMING) -> List[int]:
+                     search_method: BitWidthSearchMethod = BitWidthSearchMethod.INTEGER_PROGRAMMING,
+                     original_graph: Graph = None) -> List[int]:
     """
     Search for an MP configuration for a given graph. Given a search_method method (by default, it's linear
     programming), we use the sensitivity_evaluator object that provides a function to compute an
@@ -84,7 +85,8 @@ def search_bit_width(graph_to_search_cfg: Graph,
                                                  fw_info,
                                                  fw_impl,
                                                  sensitivity_evaluator,
-                                                 kpi_functions)
+                                                 kpi_functions,
+                                                 original_graph)
 
     if search_method in search_methods:  # Get a specific search function
         search_method_fn = search_methods.get(search_method)

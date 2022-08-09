@@ -14,17 +14,12 @@
 # ==============================================================================
 from typing import Tuple
 
-import tensorflow as tf
-import copy
 from tensorflow.keras.layers import Dense, DepthwiseConv2D, Conv2D, Conv2DTranspose
 from model_compression_toolkit.core import common
 from model_compression_toolkit.core.common import BaseNode, Graph
-from model_compression_toolkit.core.common.constants import DEFAULT_CANDIDATE_BITWIDTH
-from model_compression_toolkit.core.common.graph.graph_matchers import NodeOperationMatcher, NodeFrameworkAttrMatcher, \
-    EdgeMatcher
-from model_compression_toolkit.core.common.quantization.candidate_node_quantization_config import \
-    CandidateNodeQuantizationConfig
-from model_compression_toolkit.core.keras.constants import LINEAR, ACTIVATION
+from model_compression_toolkit.core.common.logger import Logger
+from model_compression_toolkit.core.common.graph.graph_matchers import NodeOperationMatcher, EdgeMatcher
+from model_compression_toolkit.core.common.graph.virtual_activation_weights_node import VirtualActivationWeightsNode
 
 
 class VirtualActivationWeightsComposition(common.BaseSubstitution):
@@ -62,30 +57,46 @@ class VirtualActivationWeightsComposition(common.BaseSubstitution):
         act_node = edge_nodes[0]
         weights_node = edge_nodes[1]
 
+        # if isinstance(weights_node, VirtualActivationWeightsNode):
+        #     return graph
+
+        if len(graph.out_edges(act_node)) > 1:
+            Logger.warning(f"Node {act_node.name} has multiple outgoing edges, which is not supported with "
+                           f"mixed-precision bit-operations KPI, thus, edge {act_node.name} --> {weights_node.name} "
+                           f"would not be counted in the bit-operations calculations.")
+            return graph
+
+        topo_sorted_nodes_names = [n.name for n in graph.get_topo_sorted_nodes()]
+        sorted_conf_nodes_names = graph.get_configurable_sorted_nodes_names()
+
+        original_act_node_idx = topo_sorted_nodes_names.index(act_node.name)
+        original_weights_node_idx = topo_sorted_nodes_names.index(weights_node.name)
+
+        conf_act_node_idx = sorted_conf_nodes_names.index(act_node.name) \
+                           if act_node.name in sorted_conf_nodes_names else None,
+        conf_weights_node_idx = sorted_conf_nodes_names.index(weights_node.name) \
+                               if weights_node.name in sorted_conf_nodes_names else None,
+
         # Virtual composed activation-weights node
-        v_node = copy.deepcopy(weights_node)
-        v_node.name = f"virtual_{act_node.name}_{weights_node.name}"
-
-        v_candidates = []
-        for c_a in act_node.candidates_quantization_cfg:
-            for c_w in weights_node.candidates_quantization_cfg:
-                composed_candidate = CandidateNodeQuantizationConfig(activation_quantization_cfg=c_a,
-                                                                     weights_quantization_cfg=c_w)
-                v_candidates.append(composed_candidate)
-
-        v_node.candidates_quantization_cfg = v_candidates
-
-        # TODO: how do we preserve the original activation operation **before** the convolution when we compose it to a single node?
+        # we pass a dummy initialization dict to initialize the super BaseNode class,
+        # the actual arguments values are irrelevant because they are being overridden or not used
+        v_node = VirtualActivationWeightsNode(act_node,
+                                              weights_node,
+                                              # original_act_node_idx,
+                                              # original_weights_node_idx,
+                                              # conf_act_node_idx,
+                                              # conf_weights_node_idx,
+                                              **weights_node.__dict__)
 
         # Update graph
-        # TODO: complete implementing graph update after building the node
-        # graph.add_node(weights_node)
-        # graph.add_node(activation_node)
-        # graph.reconnect_in_edges(current_node=node, new_node=weights_node)
-        # graph.reconnect_out_edges(current_node=node, new_node=activation_node)
-        # graph.replace_output_node(current_node=node, new_node=activation_node)
-        # graph.add_edge(weights_node, activation_node)
-        # graph.remove_node(node)
+        graph.add_node(v_node)
+        graph.reconnect_in_edges(current_node=act_node, new_node=v_node)
+        graph.reconnect_out_edges(current_node=weights_node, new_node=v_node)
+        graph.replace_input_node(current_node=act_node, new_node=v_node)
+        graph.replace_output_node(current_node=weights_node, new_node=v_node)
+        graph.remove_edge(act_node, weights_node)
+        graph.remove_node(weights_node)
+        graph.remove_node(act_node)
 
         return graph
 

@@ -15,15 +15,19 @@
 
 import tensorflow as tf
 import copy
+import itertools
 from tensorflow.keras.layers import Dense, DepthwiseConv2D, Conv2D, Conv2DTranspose
-from model_compression_toolkit.core import common
-from model_compression_toolkit.core.common import BaseNode, Graph
-from model_compression_toolkit.core.common.constants import DEFAULT_CANDIDATE_BITWIDTH
+from model_compression_toolkit.core.common.logger import Logger
+from model_compression_toolkit.core.common import BaseNode, Graph, BaseSubstitution
+from model_compression_toolkit.core.common.constants import DEFAULT_CANDIDATE_BITWIDTH, VIRTUAL_WEIGHTS_SUFFIX, \
+    VIRTUAL_ACTIVATION_SUFFIX
 from model_compression_toolkit.core.common.graph.graph_matchers import NodeOperationMatcher
+from model_compression_toolkit.core.common.graph.virtual_activation_weights_node import VirtualSplitWeightsNode, \
+    VirtualSplitActivationNode
 from model_compression_toolkit.core.keras.constants import LINEAR, ACTIVATION
 
 
-class WeightsActivationSplit(common.BaseSubstitution):
+class WeightsActivationSplit(BaseSubstitution):
     def __init__(self):
         """
         Matches: (DepthwiseConv2D, Conv2D, Dense, Conv2DTranspose, SeparableConv2D)[activation != identity]
@@ -51,41 +55,25 @@ class WeightsActivationSplit(common.BaseSubstitution):
             Graph after applying the substitution.
         """
 
-        if node.is_all_weights_candidates_equal() or node.is_all_activation_candidates_equal():
-            # If the node is has only one of weights or activation to configure (or none) then it shouldn't be split.
-            return graph
+        # if node.is_all_weights_candidates_equal() or node.is_all_activation_candidates_equal():
+        #     # If the node is has only one of weights or activation to configure (or none) then it shouldn't be split.
+        #     return graph
 
-        # TODO: verify that it is also composite
+        if not node.is_all_weights_candidates_equal() and not node.is_all_activation_candidates_equal():
+            # Node has both different weights and different activation configuration candidates
+            weights_bits = [c.weights_quantization_cfg.weights_n_bits for c in node.get_unique_weights_candidates()]
+            activation_bits = [c.activation_quantization_cfg.activation_n_bits for c in node.get_unique_activation_candidates()]
+            expected_candidates = list(itertools.product(weights_bits, activation_bits))
+            all_candidates_bits = [(c.weights_quantization_cfg.weights_n_bits,
+                                    c.activation_quantization_cfg.activation_n_bits) for c in node.candidates_quantization_cfg]
+            if not set(expected_candidates).issubset(all_candidates_bits):
+                # Node is not composite, therefore, can't be split
+                Logger.critical(f"The graph contains a node {node.name} with non composite candidates."
+                                f"In order to run mixed-precision search with BOPS target KPI, "
+                                f"all model layers should be composite.")
 
-        # If we arrived here, then we have a node with configurable weights and activation
-        # Virtual weights node
-        weights_node = copy.deepcopy(node)
-        weights_node.name = node.name + '_v_weights'  # 'v' is for 'virtual'
-        weights_node.candidates_quantization_cfg = node.get_unique_weights_candidates()
-
-        for c in weights_node.candidates_quantization_cfg:
-            c.activation_quantization_cfg.enable_activation_quantization = False
-            c.activation_quantization_cfg.activation_n_bits = DEFAULT_CANDIDATE_BITWIDTH
-
-        # Virtual activation node
-        # This is an identity node that passes the convolution output and quantize it if needed.
-        # TODO: should we do something different if the node is 'reused'?
-        activation_node = BaseNode(name=node.name + '_v_activation',  # 'v' is for 'virtual'
-                                   framework_attr={ACTIVATION: LINEAR},
-                                   input_shape=node.output_shape,  # the kernel output in the activation input
-                                   output_shape=node.output_shape,
-                                   weights=None,
-                                   layer_class=tf.keras.layers.Activation,
-                                   reuse=node.reuse,
-                                   reuse_group=node.reuse_group,
-                                   quantization_attr=node.quantization_attr)
-
-        activation_node.prior_info = node.prior_info
-        activation_node.candidates_quantization_cfg = node.get_unique_activation_candidates()
-
-        for c in activation_node.candidates_quantization_cfg:
-            c.activation_quantization_cfg.enable_weights_quantization = False
-            c.activation_quantization_cfg.weights_n_bits = DEFAULT_CANDIDATE_BITWIDTH
+        weights_node = VirtualSplitWeightsNode(node)
+        activation_node = VirtualSplitActivationNode(node, tf.keras.layers.Activation)
 
         # Update graph
         graph.add_node(weights_node)
@@ -93,7 +81,10 @@ class WeightsActivationSplit(common.BaseSubstitution):
         graph.reconnect_in_edges(current_node=node, new_node=weights_node)
         graph.reconnect_out_edges(current_node=node, new_node=activation_node)
         graph.replace_output_node(current_node=node, new_node=activation_node)
-        graph.add_edge(weights_node, activation_node)
+        graph.add_edge(weights_node,
+                       activation_node,
+                       source_index=0,
+                       sink_index=0)
         graph.remove_node(node)
 
         return graph

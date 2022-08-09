@@ -96,3 +96,9 @@ BITS_TO_BYTES = 8.0
 
 # Default threshold for Softmax layer
 SOFTMAX_THRESHOLD = 1
+
+
+# Substitutions node names
+VIRTUAL_WEIGHTS_SUFFIX = '_v_weights'
+VIRTUAL_ACTIVATION_SUFFIX = '_v_activation'
+VIRTUAL_ACTIVATION_WEIGHTS_NODE_PREFIX = 'virtual'
