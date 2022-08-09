@@ -305,9 +305,7 @@ class KerasImplementation(FrameworkImplementation):
 
     def get_substitutions_virtual_weights_activation_coupling(self) -> List[common.BaseSubstitution]:
         """
-
-        Returns: A list of the framework substitutions used before we build a quantized model.
-
+        Returns: A list of Keras substitutions used to build a virtual graph with composed activation-weights pairs.
         """
 
         return [WeightsActivationSplit(),
@@ -500,8 +498,15 @@ class KerasImplementation(FrameworkImplementation):
                                 node: BaseNode,
                                 fw_info: FrameworkInfo) -> float:
         """
-        TODO: add description
+        Gets the MAC operation count for a given operation.
+
+        Args:
+            node: A graph node that wraps the operation for which the MAC count is computed.
+            fw_info: FrameworkInfo object with information about the Keras model.
+
+        Returns: The MAC count og the operation
         """
+
         # TODO: check single input and output (if list or not)
         input_shape = node.input_shape
         output_shape = node.output_shape

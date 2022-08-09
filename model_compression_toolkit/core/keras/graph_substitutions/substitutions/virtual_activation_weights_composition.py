@@ -18,7 +18,7 @@ from model_compression_toolkit.core import common
 from model_compression_toolkit.core.common import BaseNode, Graph
 from model_compression_toolkit.core.common.logger import Logger
 from model_compression_toolkit.core.common.graph.graph_matchers import NodeOperationMatcher, EdgeMatcher
-from model_compression_toolkit.core.common.graph.virtual_activation_weights_node import VirtualActivationWeightsNode, VirtualSplitWeightsNode
+from model_compression_toolkit.core.common.graph.virtual_activation_weights_node import VirtualActivationWeightsNode
 
 
 class VirtualActivationWeightsComposition(common.BaseSubstitution):

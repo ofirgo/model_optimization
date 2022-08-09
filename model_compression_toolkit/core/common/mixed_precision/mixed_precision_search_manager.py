@@ -46,10 +46,13 @@ class MixedPrecisionSearchManager:
         Args:
             graph: Graph to search for its MP configuration.
             fw_info: FrameworkInfo object about the specific framework (e.g., attributes of different layers' weights to quantize).
+            fw_impl: FrameworkImplementation object with specific framework methods implementation.
             sensitivity_evaluator: A SensitivityEvaluation which provides a function that evaluates the sensitivity of
                 a bit-width configuration for the MP model.
             kpi_functions: A dictionary with pairs of (MpKpiMethod, MpKpiAggregationMethod) mapping a KPITarget to
                 a couple of kpi metric function and kpi aggregation function.
+            original_graph: In case we have a search over a virtual graph (if we have BOPS KPI target), then this argument
+                will contain the original graph (for config reconstruction purposes).
         """
 
         self.graph = graph

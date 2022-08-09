@@ -59,10 +59,13 @@ def search_bit_width(graph_to_search_cfg: Graph,
     Args:
         graph_to_search_cfg: Graph to search a MP configuration for.
         fw_info: FrameworkInfo object about the specific framework (e.g., attributes of different layers' weights to quantize).
+        fw_impl: FrameworkImplementation object with specific framework methods implementation.
         target_kpi: Target KPI to bound our feasible solution space s.t the configuration does not violate it.
         sensitivity_evaluator: A SensitivityEvaluation which provides a function that evaluates the sensitivity of
             a bit-width configuration for the MP model.
         search_method: BitWidthSearchMethod to define which searching method to use.
+        original_graph: In case we have a search over a virtual graph (if we have BOPS KPI target), then this argument
+            will contain the original graph (for config reconstruction purposes).
 
     Returns:
         A MP configuration for the graph (list of integers, where the index in the list, is the node's

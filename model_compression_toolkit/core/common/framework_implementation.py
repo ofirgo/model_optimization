@@ -249,6 +249,10 @@ class FrameworkImplementation(ABC):
 
     @abstractmethod
     def get_substitutions_virtual_weights_activation_coupling(self) -> List[common.BaseSubstitution]:
+        """
+        Returns: A list of Keras substitutions used to build a virtual graph with composed activation-weights pairs.
+        """
+
         raise NotImplemented(f'{self.__class__.__name__} have to implement the '
                              f'framework\'s get_substitutions_virtual_weights_activation_coupling method.')
 
@@ -419,7 +423,13 @@ class FrameworkImplementation(ABC):
                                 node: BaseNode,
                                 fw_info: FrameworkInfo) -> float:
         """
-        TODO: add description
+        Gets the MAC operation count for a given operation.
+
+        Args:
+            node: A graph node that wraps the operation for which the MAC count is computed.
+            fw_info: FrameworkInfo object with information about the specific framework's model.
+
+        Returns: The MAC count og the operation
         """
 
         raise NotImplemented(f'{self.__class__.__name__} have to implement the '

@@ -228,9 +228,9 @@ def _build_layer_to_metrics_mapping(search_manager: MixedPrecisionSearchManager,
     the configured mixed-precision model.
 
     Args:
-        node_to_bitwidth_indices: Possible bitwidth indices for the different nodes.
-        compute_metric_fn: Function to measure a sensitivity metric.
-        max_config: A mixed-precision config which sets the maximal bitwidth candidate for each node.
+        search_manager: MixedPrecisionSearchManager object to be used for problem formalization.
+        target_kpi: KPI to constrain our LP problem with some resources limitations (like model' weights memory
+        consumption).
 
     Returns:
         Mapping from each node's index in a graph, to a dictionary from the bitwidth index (of this node) to
@@ -279,8 +279,6 @@ def _build_layer_to_metrics_mapping(search_manager: MixedPrecisionSearchManager,
                     mp_model_configuration,
                     [node_idx],
                     search_manager.max_kpi_config)
-
-
 
     return layer_to_metrics_mapping
 

@@ -15,7 +15,7 @@
 from typing import Callable, Any
 import numpy as np
 
-from model_compression_toolkit import FrameworkInfo, KPI, MixedPrecisionQuantizationConfig, CoreConfig
+from model_compression_toolkit import FrameworkInfo, KPI, CoreConfig
 from model_compression_toolkit.core.common import Graph
 from model_compression_toolkit.core.common.constants import FLOAT_BITWIDTH
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
@@ -131,14 +131,15 @@ def compute_activation_output_sizes(graph: Graph) -> np.ndarray:
 
 def compute_total_bops(graph: Graph, fw_info: FrameworkInfo, fw_impl: FrameworkImplementation) -> np.ndarray:
     """
-    Computes a vector with the respective weights' parameters size for each weight configurable node.
+    Computes a vector with the respective Bit-operations count for each configurable node that includes MAC operations.
 
     Args:
         graph: Finalized Graph object.
         fw_info: FrameworkInfo object about the specific framework
             (e.g., attributes of different layers' weights to quantize).
+        fw_impl: FrameworkImplementation object with a specific framework methods implementation.
 
-    Returns: A vector of node's weights memory sizes.
+    Returns: A vector of nodes' Bit-operations count.
 
     """
 

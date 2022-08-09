@@ -364,7 +364,15 @@ class BaseNode:
 
         return [i for i, a_n_bits in max_candidates]
 
-    def get_unique_weights_candidates(self):
+    def get_unique_weights_candidates(self) -> List[Any]:
+        """
+        Returns a list with node's candidates of unique weights bit-width value.
+        If the node have multiple candidates with the same weights bit-width, the candidate with the highest
+        activation bit-width is returned.
+
+        Returns: A list with node's candidates of unique weights bit-width value.
+        """
+
         unique_candidates = copy.deepcopy(self.candidates_quantization_cfg)
         seen_candidates = set()
         unique_candidates = [candidate for candidate in unique_candidates if
@@ -372,7 +380,15 @@ class BaseNode:
                              and not seen_candidates.add(candidate.weights_quantization_cfg)]
         return unique_candidates
 
-    def get_unique_activation_candidates(self):
+    def get_unique_activation_candidates(self) -> List[Any]:
+        """
+        Returns a list with node's candidates of unique activation bit-width value.
+        If the node have multiple candidates with the same activation bit-width, the candidate with the highest
+        weights bit-width is returned.
+
+        Returns: A list with node's candidates of unique activation bit-width value.
+        """
+
         unique_candidates = copy.deepcopy(self.candidates_quantization_cfg)
         seen_candidates = set()
         unique_candidates = [candidate for candidate in unique_candidates if
