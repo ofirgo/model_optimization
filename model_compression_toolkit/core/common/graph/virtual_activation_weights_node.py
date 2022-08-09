@@ -64,10 +64,6 @@ class VirtualActivationWeightsNode(BaseNode):
     def __init__(self,
                  act_node: BaseNode,
                  weights_node: BaseNode,
-                 # original_act_node_idx: int,
-                 # original_weights_node_idx: int,
-                 # conf_act_node_idx: int,
-                 # conf_weights_node_idx: int,
                  name: str,
                  framework_attr: Dict[str, Any],
                  input_shape: Tuple[Any],
@@ -124,42 +120,6 @@ class VirtualActivationWeightsNode(BaseNode):
                                          c.activation_quantization_cfg.activation_n_bits), reverse=True)
 
         self.candidates_quantization_cfg = v_candidates
-
-
-
-        # # To allow matching the composed node to its building blocks from the original graph.
-        # self.original_act_node_idx = original_act_node_idx
-        # self.original_weights_node_idx = original_weights_node_idx
-        #
-        # # To allow retrieving the nodes' from the original configurable nodes list (if they were configurable)
-        # self.conf_act_node_idx = conf_act_node_idx
-        # self.conf_weights_node_idx = conf_weights_node_idx
-
-        # Overriding the node's class to prevent using the original node's operation mistakenly.
-        # The node should not being used for inference, but just for reconstructing the original graph, therefore,
-        # it's not necessary t0 maintain its layer operation.
-        # self.layer_class = None
-
-        # TODO: disable activation quantization of the OUTPUT of the composed node (but keep quantization of the
-        #   intermediate activation if it was originally enabled)
-
-    def is_original_activation_node_configurable(self):
-        return self.conf_act_node_idx is not None
-
-    def is_original_weights_node_configurable(self):
-        return self.conf_weights_node_idx is not None
-
-    def conf_activation_node_index(self):
-        return self.conf_act_node_idx
-
-    def conf_weights_node_index(self):
-        return self.conf_weights_node_idx
-
-    def original_activation_node_index(self):
-        return self.original_act_node_idx
-
-    def original_weights_node_index(self):
-        return self.original_weights_node_idx
 
     def get_bops_count(self, fw_impl: Any, fw_info: FrameworkInfo, candidate_idx: int):
         node_mac = fw_impl.get_node_mac_operations(self.original_weights_node, fw_info)

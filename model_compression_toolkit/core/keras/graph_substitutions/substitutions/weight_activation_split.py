@@ -55,10 +55,6 @@ class WeightsActivationSplit(BaseSubstitution):
             Graph after applying the substitution.
         """
 
-        # if node.is_all_weights_candidates_equal() or node.is_all_activation_candidates_equal():
-        #     # If the node is has only one of weights or activation to configure (or none) then it shouldn't be split.
-        #     return graph
-
         if not node.is_all_weights_candidates_equal() and not node.is_all_activation_candidates_equal():
             # Node has both different weights and different activation configuration candidates
             weights_bits = [c.weights_quantization_cfg.weights_n_bits for c in node.get_unique_weights_candidates()]

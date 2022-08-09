@@ -72,7 +72,7 @@ def mp_integer_programming_search(search_manager: MixedPrecisionSearchManager,
     ).flatten()
 
     if target_kpi.bops < np.inf:
-        return search_manager.reconstruct_config_from_virtual_graph(config)
+        return search_manager.config_reconstruction_helper.reconstruct_config_from_virtual_graph(config)
     else:
         return config
 
@@ -244,7 +244,7 @@ def _build_layer_to_metrics_mapping(search_manager: MixedPrecisionSearchManager,
     is_bops_target_kpi = target_kpi.bops < np.inf
 
     if is_bops_target_kpi:
-        origin_max_config = search_manager.reconstruct_config_from_virtual_graph(search_manager.max_kpi_config)
+        origin_max_config = search_manager.config_reconstruction_helper.reconstruct_config_from_virtual_graph(search_manager.max_kpi_config)
         max_config_value = search_manager.compute_metric_fn(origin_max_config)
     else:
         max_config_value = search_manager.compute_metric_fn(search_manager.max_kpi_config)
@@ -267,7 +267,7 @@ def _build_layer_to_metrics_mapping(search_manager: MixedPrecisionSearchManager,
             if is_bops_target_kpi:
                 # Reconstructing original graph's configuration from virtual graph's configuration
                 origin_mp_model_configuration = \
-                    search_manager.reconstruct_config_from_virtual_graph(mp_model_configuration)
+                    search_manager.config_reconstruction_helper.reconstruct_config_from_virtual_graph(mp_model_configuration)
                 origin_changed_nodes_indices = [i for i, c in enumerate(origin_max_config) if
                                                 c != origin_mp_model_configuration[i]]
                 layer_to_metrics_mapping[node_idx][bitwidth_idx] = search_manager.compute_metric_fn(

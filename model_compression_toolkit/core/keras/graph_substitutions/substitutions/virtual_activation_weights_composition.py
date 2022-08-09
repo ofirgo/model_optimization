@@ -13,13 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 from typing import Tuple
-
 from tensorflow.keras.layers import Dense, DepthwiseConv2D, Conv2D, Conv2DTranspose
 from model_compression_toolkit.core import common
 from model_compression_toolkit.core.common import BaseNode, Graph
 from model_compression_toolkit.core.common.logger import Logger
 from model_compression_toolkit.core.common.graph.graph_matchers import NodeOperationMatcher, EdgeMatcher
-from model_compression_toolkit.core.common.graph.virtual_activation_weights_node import VirtualActivationWeightsNode
+from model_compression_toolkit.core.common.graph.virtual_activation_weights_node import VirtualActivationWeightsNode, VirtualSplitWeightsNode
 
 
 class VirtualActivationWeightsComposition(common.BaseSubstitution):
@@ -57,35 +56,17 @@ class VirtualActivationWeightsComposition(common.BaseSubstitution):
         act_node = edge_nodes[0]
         weights_node = edge_nodes[1]
 
-        # if isinstance(weights_node, VirtualActivationWeightsNode):
-        #     return graph
-
         if len(graph.out_edges(act_node)) > 1:
             Logger.warning(f"Node {act_node.name} has multiple outgoing edges, which is not supported with "
                            f"mixed-precision bit-operations KPI, thus, edge {act_node.name} --> {weights_node.name} "
                            f"would not be counted in the bit-operations calculations.")
             return graph
 
-        topo_sorted_nodes_names = [n.name for n in graph.get_topo_sorted_nodes()]
-        sorted_conf_nodes_names = graph.get_configurable_sorted_nodes_names()
-
-        original_act_node_idx = topo_sorted_nodes_names.index(act_node.name)
-        original_weights_node_idx = topo_sorted_nodes_names.index(weights_node.name)
-
-        conf_act_node_idx = sorted_conf_nodes_names.index(act_node.name) \
-                           if act_node.name in sorted_conf_nodes_names else None,
-        conf_weights_node_idx = sorted_conf_nodes_names.index(weights_node.name) \
-                               if weights_node.name in sorted_conf_nodes_names else None,
-
         # Virtual composed activation-weights node
         # we pass a dummy initialization dict to initialize the super BaseNode class,
         # the actual arguments values are irrelevant because they are being overridden or not used
         v_node = VirtualActivationWeightsNode(act_node,
                                               weights_node,
-                                              # original_act_node_idx,
-                                              # original_weights_node_idx,
-                                              # conf_act_node_idx,
-                                              # conf_weights_node_idx,
                                               **weights_node.__dict__)
 
         # Update graph

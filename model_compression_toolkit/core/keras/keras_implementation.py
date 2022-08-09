@@ -515,7 +515,6 @@ class KerasImplementation(FrameworkImplementation):
                    (kernel_shape[0] * kernel_shape[1])
         elif node.type is DepthwiseConv2D:
             # Depth * (W_out * H_out) * C_in * (W_kernel * H_kernel)
-            # TODO: how to get depth multiplier?
             return node.framework_attr.get(DEPTH_MULTIPLIER) * \
                    np.prod([x for x in output_shape if x is not None]) / output_shape[output_channel_axis] * \
                    input_shape[input_channel_axis] * \
