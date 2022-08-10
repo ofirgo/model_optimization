@@ -111,25 +111,12 @@ def core_runner(in_model: Any,
         assert core_config.mixed_precision_enable
         if core_config.mixed_precision_config.configuration_overwrite is None:
 
-            mp_graph = tg
-            if target_kpi.bops < np.inf:
-                # Since Bit-operations count target KPI is set, we need to reconstruct the graph for the MP search
-                mp_graph = substitute(tg, fw_impl.get_substitutions_virtual_weights_activation_coupling())
-
-            # The Sensitivity Evaluator should always work with the original MP graph,
-            # even if a virtual graph was created (and is used only for KPI computation purposes)
-            se = fw_impl.get_sensitivity_evaluator(
-                tg,
-                core_config.mixed_precision_config,
-                representative_data_gen=representative_data_gen,
-                fw_info=fw_info)
-
-            bit_widths_config = search_bit_width(mp_graph,
+            bit_widths_config = search_bit_width(tg,
                                                  fw_info,
                                                  fw_impl,
                                                  target_kpi,
-                                                 se,
-                                                 original_graph=tg)
+                                                 core_config.mixed_precision_config,
+                                                 representative_data_gen)
         else:
             Logger.warning(
                 f'Mixed Precision has overwrite bit-width configuration{core_config.mixed_precision_config.configuration_overwrite}')

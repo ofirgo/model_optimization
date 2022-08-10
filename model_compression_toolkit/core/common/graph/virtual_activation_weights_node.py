@@ -12,7 +12,18 @@ from model_compression_toolkit.core.keras.constants import ACTIVATION, LINEAR
 
 
 class VirtualSplitNode(BaseNode):
+    """
+    A class that represents a node that was split from a kernel node (node with weights).
+    """
+
     def __init__(self, origin_node):
+        """
+        Init a VirtualSplitNode object.
+
+        Args:
+            origin_node: The original node from which the new node was split.
+        """
+
         super().__init__(origin_node.name,
                          origin_node.framework_attr,
                          origin_node.input_shape,
@@ -28,7 +39,20 @@ class VirtualSplitNode(BaseNode):
 
 
 class VirtualSplitWeightsNode(VirtualSplitNode):
+    """
+    A class that represents a node that was split from a kernel node (node with weights) and holds the weights of
+    the original node. This node contains the original node's weights and the relevant weights candidate quantization
+    config.
+    """
+
     def __init__(self, origin_node):
+        """
+        Init a VirtualSplitWeightsNode object.
+
+        Args:
+            origin_node: The original node from which the new node was split.
+        """
+
         super().__init__(origin_node)
 
         self.name = origin_node.name + VIRTUAL_WEIGHTS_SUFFIX
@@ -40,7 +64,20 @@ class VirtualSplitWeightsNode(VirtualSplitNode):
 
 
 class VirtualSplitActivationNode(VirtualSplitNode):
+    """
+    A class that represents a node that was split from a kernel node (node with weights) and holds the activation
+    operation of the original node. This node baisically does not apply any operation and only holds the relevant
+    activation candidate quantization config.
+    """
+
     def __init__(self, origin_node, activation_class):
+        """
+        Init a VirtualSplitActivationNode object.
+
+        Args:
+            origin_node: The original node from which the new node was split.
+        """
+
         super().__init__(origin_node)
 
         self.name = origin_node.name + VIRTUAL_ACTIVATION_SUFFIX
@@ -58,7 +95,9 @@ class VirtualSplitActivationNode(VirtualSplitNode):
 
 class VirtualActivationWeightsNode(BaseNode):
     """
-    Node that represents function ops with arguments to pass when building back the model.
+    A node that represents a composition of pair of sequential activation node and weights (kernel) node.
+    This structure is used for mixed-precision with search with bit-operation KPI.
+    The node's candidates are the product of both nodes' candidates.
     """
 
     def __init__(self,
@@ -76,9 +115,11 @@ class VirtualActivationWeightsNode(BaseNode):
                  has_activation: bool = True,
                  **kwargs):
         """
-        Init a FunctionalNode object.
+        Init a VirtualActivationWeightsNode object.
 
         Args:
+            act_node: The original activation node.
+            weights_node: The original weights node.
             name: Node's name
             framework_attr: Framework attributes the layer had which the node holds.
             input_shape: Input tensor shape of the node.
@@ -89,6 +130,8 @@ class VirtualActivationWeightsNode(BaseNode):
             reuse_group: Name of group of nodes from the same reused layer.
             quantization_attr: Attributes the node holds regarding how it should be quantized.
             has_activation: Whether the node has activations that we might want to quantize.
+            **kwargs: Additional arguments that can be passed but are not used (allows to init the object with an
+                existing node's __dict__).
 
         """
 
@@ -121,7 +164,18 @@ class VirtualActivationWeightsNode(BaseNode):
 
         self.candidates_quantization_cfg = v_candidates
 
-    def get_bops_count(self, fw_impl: Any, fw_info: FrameworkInfo, candidate_idx: int):
+    def get_bops_count(self, fw_impl: Any, fw_info: FrameworkInfo, candidate_idx: int) -> float:
+        """
+        Computes the composed node's (edge) bit-operation count.
+
+        Args:
+            fw_impl: A FrameworkImplementation object with framework specific methods.
+            fw_info: A FrameworkInfo object with framework specific information,
+            candidate_idx: The index of the node's quantization candidate configuration.
+
+        Returns: The BOPS count of the composed node.
+
+        """
         node_mac = fw_impl.get_node_mac_operations(self.original_weights_node, fw_info)
         node_bops = self.candidates_quantization_cfg[candidate_idx].weights_quantization_cfg.weights_n_bits * \
                     self.candidates_quantization_cfg[candidate_idx].activation_quantization_cfg.activation_n_bits * \

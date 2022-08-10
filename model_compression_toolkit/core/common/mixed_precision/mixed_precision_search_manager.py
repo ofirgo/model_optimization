@@ -17,6 +17,7 @@ from typing import Callable, Tuple
 from typing import Dict, List
 import numpy as np
 
+from model_compression_toolkit.core.common import BaseNode
 from model_compression_toolkit.core.common.logger import Logger
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 from model_compression_toolkit.core.common.graph.base_graph import Graph
@@ -230,7 +231,25 @@ class MixedPrecisionSearchManager:
 
 
 class ConfigReconstructionHelper:
-    def __init__(self, virtual_graph, original_graph):
+    """
+    A class to help reconstruct an original mixed-precision configuration from a virtual one,
+    when running mixed-precision search with BOPS KPI.
+    It provides a reconstruct_config_from_virtual_graph which allows to translate a bit-width config of a virtual graph
+    to a config of the original configurable nodes.
+    """
+
+    def __init__(self, virtual_graph: Graph, original_graph: Graph):
+        """
+        Init a ConfigReconstructionHelper object.
+        It holds a dictionary variable named origin_node_idx_to_cfg which holds the mapping from an original graph's
+        configurable node to its actual bit-width index (this data structure is being cleared
+        after every reconstruction call).
+
+        Args:
+            virtual_graph: The virtual graph.
+            original_graph: The original graph.
+        """
+
         self.virtual_graph = virtual_graph
         self.original_graph = original_graph
 
@@ -240,9 +259,28 @@ class ConfigReconstructionHelper:
         self.origin_node_idx_to_cfg = {}
 
     def _clear_reconstruction_dict(self):
+        """
+        Clears the origin_node_idx_to_cfg data structure.
+        """
+
         self.origin_node_idx_to_cfg = {}
 
-    def reconstruct_config_from_virtual_graph(self, virtual_mp_cfg):
+    def reconstruct_config_from_virtual_graph(self, virtual_mp_cfg: List[int]) -> List[int]:
+        """
+        Reconstructs the original config for a given virtual graph mixed-precision config.
+        It iterates over all virtual configurable node (that has some chosen bit-width virtual candidate)
+        and translates its chosen candidate to a candidate index of configurable nodes in the original graph.
+        The translation is based of the virtual node's type. Note that if the node is a split activation node
+        for instance, then we need to find its matching weights node in order to construct the original linear node's
+        chosen config.
+
+        Args:
+            virtual_mp_cfg: A mixed-precision configuration (list of candidates indices) of the virtual graph.
+
+        Returns: A mixed-precision configuration (list of candidates indices) of the original graph.
+
+        """
+
         for virtual_node_idx, n in enumerate(self.virtual_graph.get_configurable_sorted_nodes()):
             virtual_cfg_idx = virtual_mp_cfg[virtual_node_idx]
 
@@ -288,7 +326,18 @@ class ConfigReconstructionHelper:
         self._clear_reconstruction_dict()
         return res_config
 
-    def retrieve_weights_only_config(self, weights_node, virtual_node, virtual_cfg_idx):
+    def retrieve_weights_only_config(self, weights_node: BaseNode, virtual_node: BaseNode, virtual_cfg_idx: int):
+        """
+        Retrieves the configuration of an original weights configurable node based on a
+        virtual weights configurable node's chosen config idx, and updates (inplace) the origin_cfg_idx mapping dict.
+        If the original node is not configurable, nothing will be updated.
+
+        Args:
+            weights_node: The original weights (possibly configurable) node.
+            virtual_node: The virtual weights configurable node.
+            virtual_cfg_idx: The virtual node's chosen config index.
+        """
+
         if weights_node.name in self.origin_sorted_conf_nodes_names:
             # It is possible that the original weights node is not configurable,
             # in this case we don't need to retrieve its bit-width config
@@ -299,7 +348,18 @@ class ConfigReconstructionHelper:
 
             self.update_config_at_original_idx(weights_node, origin_cfg_idx[0])
 
-    def retrieve_activation_only_config(self, activation_node, virtual_node, virtual_cfg_idx):
+    def retrieve_activation_only_config(self, activation_node: BaseNode, virtual_node: BaseNode, virtual_cfg_idx: int):
+        """
+        Retrieves the configuration of an original activation configurable node based on a
+        virtual activation configurable node's chosen config idx, and updates (inplace) the origin_cfg_idx mapping dict.
+        If the original node is not configurable, nothing will be updated.
+
+        Args:
+            activation_node: The original activation (possibly configurable) node.
+            virtual_node: The virtual activation configurable node.
+            virtual_cfg_idx: The virtual node's chosen config index.
+        """
+
         if activation_node.name in self.origin_sorted_conf_nodes_names:
             # It is possible that the original activation node is not configurable,
             # in this case we don't need to retrieve its bit-width config
@@ -311,7 +371,25 @@ class ConfigReconstructionHelper:
 
             self.update_config_at_original_idx(activation_node, origin_cfg_idx[0])
 
-    def retrieve_activation_weights_config(self, activation_node, weights_node, virtual_node, virtual_cfg_idx, virtual_mp_cfg):
+    def retrieve_activation_weights_config(self,
+                                           activation_node: BaseNode,
+                                           weights_node: BaseNode,
+                                           virtual_node: BaseNode,
+                                           virtual_cfg_idx: int,
+                                           virtual_mp_cfg: List[int]):
+        """
+        Retrieves the configuration of an original weights and activation (possibly) configurable node based on a given
+        virtual split weights node and a virtual split activation node which represents its matching in the original graph.
+        it updates (inplace) the origin_cfg_idx mapping dict.
+
+        Args:
+            activation_node: The virtual node that contains the activation that matches the weights node in the original graph.
+            weights_node: The virtual node that contains the weights representation of an original node.
+            virtual_node: The virtual node that contains the virtual weights node (either a composed node or a split weights node).
+            virtual_cfg_idx: The virtual node's chosen config index.
+            virtual_mp_cfg: The virtual graph's chosen mp config.
+        """
+
         activation_bitwidth = activation_node.candidates_quantization_cfg[virtual_mp_cfg[
             self.virtual_sorted_nodes_names.index(activation_node.name)]].activation_quantization_cfg.activation_n_bits
 
@@ -324,7 +402,25 @@ class ConfigReconstructionHelper:
 
         self.update_config_at_original_idx(weights_node.origin_node, origin_cfg_idx[0])
 
-    def retrieve_weights_activation_config(self, activation_node, weights_node, virtual_node, virtual_cfg_idx, virtual_mp_cfg):
+    def retrieve_weights_activation_config(self,
+                                           activation_node: BaseNode,
+                                           weights_node: BaseNode,
+                                           virtual_node: BaseNode,
+                                           virtual_cfg_idx: int,
+                                           virtual_mp_cfg: List[int]):
+        """
+        Retrieves the configuration of an original weights and activation (possibly) configurable node based on a given
+        virtual split activation node and a virtual split weights node which represents its matching in the original graph.
+        it updates (inplace) the origin_cfg_idx mapping dict.
+
+        Args:
+            activation_node: The virtual node that contains the activation representation of an original node.
+            weights_node: The virtual node that contains the weights that matches the activation node in the original graph.
+            virtual_node: The virtual node that contains the virtual activation node (either a composed node or a split activation node).
+            virtual_cfg_idx: The virtual node's chosen config index.
+            virtual_mp_cfg: The virtual graph's chosen mp config.
+        """
+
         weights_bitwidth = weights_node.candidates_quantization_cfg[virtual_mp_cfg[
             self.virtual_sorted_nodes_names.index(weights_node.name)]].weights_quantization_cfg.weights_n_bits
 
@@ -337,7 +433,23 @@ class ConfigReconstructionHelper:
 
         self.update_config_at_original_idx(activation_node.origin_node, origin_cfg_idx[0])
 
-    def get_activation_for_split_weights(self, weights_node, virtual_node, virtual_cfg_idx, virtual_mp_cfg):
+    def get_activation_for_split_weights(self,
+                                         weights_node: BaseNode,
+                                         virtual_node: BaseNode,
+                                         virtual_cfg_idx: int,
+                                         virtual_mp_cfg: List[int]):
+        """
+        Finds the matching activation node in the virtual graph for a given split weights node,
+        and calls the relevant method for updating the configuration mapping.
+
+        Args:
+            weights_node: A virtual weights node.
+            virtual_node: A virtual node that contains the virtual weights node (either a composed node or a split weights node).
+            virtual_cfg_idx: The virtual node's chosen config index.
+            virtual_mp_cfg: The virtual graph's chosen mp config.
+
+        """
+
         # This is a weights node that was split, means it has an activation node that should follow it,
         # and we need its configuration in order to reconstruct the original node's configuration.
         matching_activation_node = self.virtual_graph.get_next_nodes(virtual_node)
@@ -360,7 +472,23 @@ class ConfigReconstructionHelper:
                 # The original node is only weights configurable
                 self.retrieve_weights_only_config(weights_node.origin_node, virtual_node, virtual_cfg_idx)
 
-    def get_weights_for_split_activation(self, activation_node, virtual_node, virtual_cfg_idx, virtual_mp_cfg):
+    def get_weights_for_split_activation(self,
+                                         activation_node: BaseNode,
+                                         virtual_node: BaseNode,
+                                         virtual_cfg_idx: int,
+                                         virtual_mp_cfg: List[int]):
+        """
+        Finds the matching weights node in the virtual graph for a given split activation node,
+        and calls the relevant method for updating the configuration mapping.
+
+        Args:
+            activation_node: A virtual activation node.
+            virtual_node: A virtual node that contains the virtual activation node (either a composed node or a split activation node).
+            virtual_cfg_idx: The virtual node's chosen config index.
+            virtual_mp_cfg: The virtual graph's chosen mp config.
+
+        """
+
         # This is an activation node that was split, means it has a weights node that should come before it,
         # and we need its configuration in order to reconstruct the original node's configuration.
         matching_weights_node = self.virtual_graph.get_prev_nodes(virtual_node)
@@ -390,6 +518,16 @@ class ConfigReconstructionHelper:
                 Logger.error(f"Virtual graph error - a weights node is not composed with an activation node,"
                              f"but its predecessor doesn't have multiple outputs.")
 
-    def update_config_at_original_idx(self, n, origin_cfg_idx):
+    def update_config_at_original_idx(self, n: BaseNode, origin_cfg_idx: int):
+        """
+        Updates (inplace) the origin_node_idx_to_cfg mapping wit hthe given index for a given original node index
+        (in the original graph's sorted configurable nodes list).
+
+        Args:
+            n: An original graph's node
+            origin_cfg_idx: A candidate index.
+
+        """
+
         origin_idx = self.origin_sorted_conf_nodes_names.index(n.name)
         self.origin_node_idx_to_cfg[origin_idx] = origin_cfg_idx

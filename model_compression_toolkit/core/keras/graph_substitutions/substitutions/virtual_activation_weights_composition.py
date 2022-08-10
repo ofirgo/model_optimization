@@ -24,11 +24,9 @@ from model_compression_toolkit.core.common.graph.virtual_activation_weights_node
 class VirtualActivationWeightsComposition(common.BaseSubstitution):
     def __init__(self):
         """
-        Matches: (DepthwiseConv2D, Conv2D, Dense, Conv2DTranspose, SeparableConv2D)[activation != identity]
+        Matches: Edge (Activation) --> (DepthwiseConv2D, Conv2D, Dense, Conv2DTranspose)
         """
 
-        # We assume that the graph that this substitution is running on had all its kernel node
-        # have been decomposed from their activations
         weights_node = NodeOperationMatcher(DepthwiseConv2D) | \
                        NodeOperationMatcher(Conv2D) | \
                        NodeOperationMatcher(Dense) | \
@@ -42,12 +40,15 @@ class VirtualActivationWeightsComposition(common.BaseSubstitution):
                    graph: Graph,
                    edge_nodes: Tuple[BaseNode, BaseNode]) -> Graph:
         """
-        Decompose the activation function in a linear node to a new activation layer.
-        Set activation function in the linear node to 'linear' (y=x).
+        Combines an activation --> weights edge's node into one virtual composed node that contains the activation
+        operation and the linear operation (in that order).
+        The node's quantization configuration candidates include the product of both node's candidates.
+        Note that if the activation node has multiple outputs (beside its matched weights node) than the substitution
+        would not apply.
 
         Args:
             graph: Graph we apply the substitution on.
-            op2d_node: Node to extract its activation function.
+            edge_nodes: An edge to be composed.
 
         Returns:
             Graph after applying the substitution.

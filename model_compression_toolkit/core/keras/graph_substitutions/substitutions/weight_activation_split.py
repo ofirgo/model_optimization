@@ -14,42 +14,41 @@
 # ==============================================================================
 
 import tensorflow as tf
-import copy
 import itertools
 from tensorflow.keras.layers import Dense, DepthwiseConv2D, Conv2D, Conv2DTranspose
 from model_compression_toolkit.core.common.logger import Logger
 from model_compression_toolkit.core.common import BaseNode, Graph, BaseSubstitution
-from model_compression_toolkit.core.common.constants import DEFAULT_CANDIDATE_BITWIDTH, VIRTUAL_WEIGHTS_SUFFIX, \
-    VIRTUAL_ACTIVATION_SUFFIX
 from model_compression_toolkit.core.common.graph.graph_matchers import NodeOperationMatcher
 from model_compression_toolkit.core.common.graph.virtual_activation_weights_node import VirtualSplitWeightsNode, \
     VirtualSplitActivationNode
-from model_compression_toolkit.core.keras.constants import LINEAR, ACTIVATION
 
 
 class WeightsActivationSplit(BaseSubstitution):
     def __init__(self):
         """
-        Matches: (DepthwiseConv2D, Conv2D, Dense, Conv2DTranspose, SeparableConv2D)[activation != identity]
+        Matches: (DepthwiseConv2D, Conv2D, Dense, Conv2DTranspose)
         """
         op2d_node = NodeOperationMatcher(DepthwiseConv2D) | \
                     NodeOperationMatcher(Conv2D) | \
                     NodeOperationMatcher(Dense) | \
                     NodeOperationMatcher(Conv2DTranspose)
 
-        op2d_node = op2d_node
         super().__init__(matcher_instance=op2d_node)
 
     def substitute(self,
                    graph: Graph,
                    node: BaseNode) -> Graph:
         """
-        Decompose the activation function in a linear node to a new activation layer.
-        Set activation function in the linear node to 'linear' (y=x).
+        Decompose a linear node into two nodes - one with the linear operations (a weights node) and one with
+        the activation operation (with an identity function that just passes the node's output, but allows to
+        quantize it according to the node's activation quantization configuration candidates).
+        The two new virtual nodes are connected with an edge [weights node --> activation node].
+        Note that the node is split only if its candidates list is composite, that is, it contains all the combinations
+        of activation and weights bit-width that exists in any of its candidates.
 
         Args:
             graph: Graph we apply the substitution on.
-            op2d_node: Node to extract its activation function.
+            node: Node to split.
 
         Returns:
             Graph after applying the substitution.
