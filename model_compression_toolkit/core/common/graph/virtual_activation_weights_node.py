@@ -89,8 +89,8 @@ class VirtualSplitActivationNode(VirtualSplitNode):
 
         self.candidates_quantization_cfg = origin_node.get_unique_activation_candidates()
         for c in self.candidates_quantization_cfg:
-            c.activation_quantization_cfg.enable_weights_quantization = False
-            c.activation_quantization_cfg.weights_n_bits = DEFAULT_CANDIDATE_BITWIDTH
+            c.weights_quantization_cfg.enable_weights_quantization = False
+            c.weights_quantization_cfg.weights_n_bits = DEFAULT_CANDIDATE_BITWIDTH
 
 
 class VirtualActivationWeightsNode(BaseNode):
