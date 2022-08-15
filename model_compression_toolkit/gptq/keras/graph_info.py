@@ -19,7 +19,7 @@ from tensorflow_model_optimization.python.core.quantization.keras.quantize_wrapp
 from typing import Tuple, List
 
 from model_compression_toolkit.core.keras.constants import USE_BIAS
-from model_compression_toolkit.gptq.keras.quantizer import WeightQuantizeConfig
+from model_compression_toolkit.gptq.keras.quantizer import GradientPTQQuantizeConfig
 from model_compression_toolkit.core.common.framework_info import FrameworkInfo
 from tensorflow.keras.models import Model
 
@@ -48,21 +48,22 @@ def get_trainable_parameters(fxp_model: Model,
     temperature_weights: List[tf.Tensor] = []
     for layer in fxp_model.layers:
         if isinstance(layer, QuantizeWrapper) and isinstance(
-                layer.quantize_config, WeightQuantizeConfig):
+                layer.quantize_config, GradientPTQQuantizeConfig):
             # collect trainable weights per layer
-            layer_trainable_weights = layer.quantize_config.get_aux_variable()
-            layer_trainable_threshold = layer.quantize_config.get_quantization_variable()
-            if is_gumbel:
-                temperature_weights.append(layer.quantize_config.get_temperature_variable())
+            if layer.quantize_config.final_weights_quantization_cfg.enable_weights_quantization:
+                layer_trainable_weights = layer.quantize_config.get_aux_variable()
+                layer_trainable_threshold = layer.quantize_config.get_quantization_variable()
+                if is_gumbel:
+                    temperature_weights.append(layer.quantize_config.get_temperature_variable())
 
-            if add_bias:
-                kernel_ops_attrs = fw_info.kernel_ops_attributes_mapping.get(type(layer.layer))
-                use_bias = kernel_ops_attrs is not None and kernel_ops_attrs[0] is not None \
-                           and layer.layer.get_config().get(USE_BIAS)
-                if use_bias is not None and use_bias:
-                    bias_weights.append([layer.layer.bias])
-            trainable_weights.append(layer_trainable_weights)
-            trainable_threshold.extend(layer_trainable_threshold)
+                if add_bias:
+                    kernel_ops_attrs = fw_info.kernel_ops_attributes_mapping.get(type(layer.layer))
+                    use_bias = kernel_ops_attrs is not None and kernel_ops_attrs[0] is not None \
+                               and layer.layer.get_config().get(USE_BIAS)
+                    if use_bias is not None and use_bias:
+                        bias_weights.append([layer.layer.bias])
+                trainable_weights.append(layer_trainable_weights)
+                trainable_threshold.extend(layer_trainable_threshold)
 
     return trainable_weights, bias_weights, trainable_threshold, temperature_weights
 
@@ -79,7 +80,7 @@ def get_gumbel_probability(fxp_model: Model) -> List[tf.Tensor]:
     gumbel_prob_aux: List[tf.Tensor] = []
     for layer in fxp_model.layers:
         if isinstance(layer, QuantizeWrapper) and isinstance(
-                layer.quantize_config, WeightQuantizeConfig):
+                layer.quantize_config, GradientPTQQuantizeConfig):
             gumbel_prob_aux.append(layer.quantize_config.get_gumbel_probability())
     return gumbel_prob_aux
 
@@ -100,14 +101,14 @@ def get_weights_for_loss(fxp_model: Model) -> Tuple[List[list], List[list]]:
     fxp_weights_list = []
     for layer in fxp_model.layers:
         if isinstance(layer, QuantizeWrapper) and isinstance(
-                layer.quantize_config, WeightQuantizeConfig):
-
-            # collect pairs of float and quantized weights per layer
-            _layer_flp_weights, _layer_fxp_weights = [], []
-            for weight, quantizer, quantizer_vars in layer._weight_vars:
-                _layer_flp_weights.append(weight)
-                _layer_fxp_weights.append(quantizer(weight, training=False, weights=quantizer_vars))
-            flp_weights_list.append(_layer_flp_weights)
-            fxp_weights_list.append(_layer_fxp_weights)
+                layer.quantize_config, GradientPTQQuantizeConfig):
+            if layer.quantize_config.final_weights_quantization_cfg.enable_weights_quantization:
+                # collect pairs of float and quantized weights per layer
+                _layer_flp_weights, _layer_fxp_weights = [], []
+                for weight, quantizer, quantizer_vars in layer._weight_vars:
+                    _layer_flp_weights.append(weight)
+                    _layer_fxp_weights.append(quantizer(weight, training=False, weights=quantizer_vars))
+                flp_weights_list.append(_layer_flp_weights)
+                fxp_weights_list.append(_layer_fxp_weights)
 
     return flp_weights_list, fxp_weights_list

@@ -15,7 +15,7 @@
 from typing import List, Callable, Tuple
 
 import tensorflow as tf
-from model_compression_toolkit.gptq.keras.quantizer.configs.weight_quantizer_gptq_config import WeightQuantizeConfig
+from model_compression_toolkit.gptq.keras.quantizer.configs.quantizer_gptq_config import GradientPTQQuantizeConfig
 from tensorflow_model_optimization.python.core.quantization.keras.quantize_wrapper import QuantizeWrapper
 
 
@@ -57,7 +57,7 @@ class SAM:
         """
         for layer in self.model2quantized.layers:
             if isinstance(layer, QuantizeWrapper) and isinstance(
-                    layer.quantize_config, WeightQuantizeConfig):
+                    layer.quantize_config, GradientPTQQuantizeConfig):
                 layer.quantize_config.enable_update()
 
     def _disable_update_step_param(self):
@@ -68,7 +68,7 @@ class SAM:
         """
         for layer in self.model2quantized.layers:
             if isinstance(layer, QuantizeWrapper) and isinstance(
-                    layer.quantize_config, WeightQuantizeConfig):
+                    layer.quantize_config, GradientPTQQuantizeConfig):
                 layer.quantize_config.disable_update()
 
     def _update_w_location(self, gradients: List[List[tf.Tensor]]):

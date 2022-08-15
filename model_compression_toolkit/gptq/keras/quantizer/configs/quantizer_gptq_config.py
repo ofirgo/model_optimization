@@ -19,7 +19,10 @@ from tensorflow import Tensor
 import tensorflow as tf
 
 # As from Tensorflow 2.6, keras is a separate package and some classes should be imported differently.
-
+from model_compression_toolkit.core.common.quantization.candidate_node_quantization_config import \
+    CandidateNodeQuantizationConfig
+from model_compression_toolkit.gptq.keras.quantizer.gumbel_rounding.gptq_activation_quantizer import \
+    GPTQActivationQuantizer
 
 if tf.__version__ < "2.6":
     from tensorflow.python.keras.layers import Layer
@@ -39,17 +42,20 @@ from model_compression_toolkit.gptq.keras.quantizer.ste_rounding.symmetric_ste i
 from model_compression_toolkit.core.common.target_platform.op_quantization_config import QuantizationMethod
 from model_compression_toolkit.core.common.constants import THRESHOLD, RANGE_MAX, RANGE_MIN
 from model_compression_toolkit.core import common
-from model_compression_toolkit.core.common.quantization.node_quantization_config import NodeWeightsQuantizationConfig
+from model_compression_toolkit.core.common.quantization.node_quantization_config import NodeWeightsQuantizationConfig, \
+    NodeActivationQuantizationConfig
 from model_compression_toolkit.gptq.common import gptq_constants
 
 
-class WeightQuantizeConfig(BaseQuantizeConfig):
+class GradientPTQQuantizeConfig(BaseQuantizeConfig):
     """
     QuantizeConfig to quantize the weights of a layer using a TrainableQuantizer.
     """
 
-    def __init__(self, weight_attrs: List[str],
+    def __init__(self,
+                 weight_attrs: List[str],
                  final_weights_quantization_cfg: NodeWeightsQuantizationConfig,
+                 final_activation_quantization_cfg: NodeActivationQuantizationConfig,
                  gptq_config: GradientPTQConfig):
         """
         Initialize a TrainableQuantizer and set as the weights quantizer.
@@ -59,58 +65,82 @@ class WeightQuantizeConfig(BaseQuantizeConfig):
             gptq_config: A GPTQ configuration calls.
         """
 
-        num_bits = final_weights_quantization_cfg.weights_n_bits
-        weight_channel_axis = final_weights_quantization_cfg.weights_channels_axis
-        max_lsbs_change_map = gptq_config.lsb_change_per_bit_width
         self.weight_attrs = weight_attrs
         self.final_weights_quantization_cfg = final_weights_quantization_cfg
+        self.final_activation_quantization_cfg = final_activation_quantization_cfg
         self.gptq_config = gptq_config
 
-        if final_weights_quantization_cfg.weights_quantization_method in [QuantizationMethod.SYMMETRIC,
-                                                                          QuantizationMethod.POWER_OF_TWO]:
-            is_power_of_two = QuantizationMethod.POWER_OF_TWO == final_weights_quantization_cfg.weights_quantization_method
-            threshold_values = final_weights_quantization_cfg.weights_quantization_params.get(THRESHOLD)
-            if gptq_config.rounding_type == RoundingType.STE:
+        if final_weights_quantization_cfg.enable_weights_quantization:
+            self._build_weights_quantizer()
+        else:
+            pass
+            # TODO: need to define "self.weights_quantizer" or set to None and make sure that it is not being used in this case later
+
+        if final_activation_quantization_cfg.enable_activation_quantization:
+            self._build_activation_quantizer()
+        else:
+            pass
+            # TODO: need to define "self.activation_quantizer" or set to None and make sure that it is not being used in this case later
+
+    def _build_weights_quantizer(self):
+        num_bits = self.final_weights_quantization_cfg.weights_n_bits
+        weight_channel_axis = self.final_weights_quantization_cfg.weights_channels_axis
+        max_lsbs_change_map = self.gptq_config.lsb_change_per_bit_width
+        if self.final_weights_quantization_cfg.weights_quantization_method in [QuantizationMethod.SYMMETRIC,
+                                                                               QuantizationMethod.POWER_OF_TWO]:
+            is_power_of_two = QuantizationMethod.POWER_OF_TWO == self.final_weights_quantization_cfg.weights_quantization_method
+            weights_threshold_values = self.final_weights_quantization_cfg.weights_quantization_params.get(THRESHOLD)
+            if self.gptq_config.rounding_type == RoundingType.STE:
                 self.weight_quantizer = STEWeightQuantizer(num_bits=num_bits,
                                                            per_axis=len(
-                                                               threshold_values.flatten()) > 1,
-                                                           threshold_values=threshold_values,
+                                                               weights_threshold_values.flatten()) > 1,
+                                                           threshold_values=weights_threshold_values,
                                                            signed=True,
                                                            power_of_two=is_power_of_two,
                                                            quantization_axis=weight_channel_axis,
                                                            max_lsbs_change_map=max_lsbs_change_map)
-            elif gptq_config.rounding_type == RoundingType.GumbelRounding:
+            elif self.gptq_config.rounding_type == RoundingType.GumbelRounding:
                 self.weight_quantizer = SymmetricGumbelRounding(num_bits=num_bits,
                                                                 per_axis=len(
-                                                                    threshold_values.flatten()) > 1,
-                                                                threshold_values=threshold_values,
+                                                                    weights_threshold_values.flatten()) > 1,
+                                                                threshold_values=weights_threshold_values,
                                                                 signed=True,
                                                                 power_of_two=is_power_of_two,
-                                                                quantization_parameter_learning=gptq_config.quantization_parameters_learning,
+                                                                quantization_parameter_learning=self.gptq_config.quantization_parameters_learning,
                                                                 quantization_axis=weight_channel_axis,
                                                                 max_lsbs_change_map=max_lsbs_change_map,
-                                                                max_iteration=gptq_config.n_iter,
-                                                                gumbel_config=gptq_config.quantizer_config)
+                                                                max_iteration=self.gptq_config.n_iter,
+                                                                gumbel_config=self.gptq_config.quantizer_config)
             else:
                 common.Logger.error(
-                    f"For quantization method {final_weights_quantization_cfg.weights_quantization_method}, GPTQ Rounding type {gptq_config.rounding_type} is not supported")
-        elif final_weights_quantization_cfg.weights_quantization_method == QuantizationMethod.UNIFORM:
-            if not gptq_config.rounding_type == RoundingType.GumbelRounding:
+                    f"For quantization method {self.final_weights_quantization_cfg.weights_quantization_method}, GPTQ Rounding type {self.gptq_config.rounding_type} is not supported")
+        elif self.final_weights_quantization_cfg.weights_quantization_method == QuantizationMethod.UNIFORM:
+            if not self.gptq_config.rounding_type == RoundingType.GumbelRounding:
                 common.Logger.error(
-                    f"For quantization method {final_weights_quantization_cfg.weights_quantization_method}, GPTQ Rounding type {gptq_config.rounding_type} is not supported")
-            range_max = final_weights_quantization_cfg.weights_quantization_params.get(RANGE_MAX)
-            range_min = final_weights_quantization_cfg.weights_quantization_params.get(RANGE_MIN)
+                    f"For quantization method {self.final_weights_quantization_cfg.weights_quantization_method}, GPTQ Rounding type {self.gptq_config.rounding_type} is not supported")
+            range_max = self.final_weights_quantization_cfg.weights_quantization_params.get(RANGE_MAX)
+            range_min = self.final_weights_quantization_cfg.weights_quantization_params.get(RANGE_MIN)
             self.weight_quantizer = UniformGumbelRounding(num_bits=num_bits,
                                                           per_axis=len(
                                                               range_max.flatten()) > 1,
                                                           min_range=range_min,
                                                           max_range=range_max,
                                                           signed=True,
-                                                          quantization_parameter_learning=gptq_config.quantization_parameters_learning,
+                                                          quantization_parameter_learning=self.gptq_config.quantization_parameters_learning,
                                                           quantization_axis=weight_channel_axis,
                                                           max_lsbs_change_map=max_lsbs_change_map,
-                                                          max_iteration=gptq_config.n_iter,
-                                                          gumbel_config=gptq_config.quantizer_config)
+                                                          max_iteration=self.gptq_config.n_iter,
+                                                          gumbel_config=self.gptq_config.quantizer_config)
+
+    def _build_activation_quantizer(self):
+        if self.final_activation_quantization_cfg.activation_quantization_method in [QuantizationMethod.SYMMETRIC,
+                                                                                     QuantizationMethod.POWER_OF_TWO]:
+            is_power_of_two = QuantizationMethod.POWER_OF_TWO == self.final_activation_quantization_cfg.activation_quantization_method
+            activation_threshold_values = self.final_activation_quantization_cfg.activation_quantization_params.get(THRESHOLD)
+            # self.activation_quantizer = GPTQActivationQuantizer()
+        else:
+            range_max = self.final_activation_quantization_cfg.activation_quantization_params.get(RANGE_MAX)
+            range_min = self.final_activation_quantization_cfg.activation_quantization_params.get(RANGE_MIN)
 
     def enable_update(self):
         """
@@ -141,11 +171,18 @@ class WeightQuantizeConfig(BaseQuantizeConfig):
         Returns:
             List of tuples of the layer's weights and the weight quantizer.
         """
-        return [(getattr(layer, weight_attr), self.weight_quantizer)
-                for weight_attr in self.weight_attrs]
+        if self.final_weights_quantization_cfg.enable_weights_quantization:
+            return [(getattr(layer, weight_attr), self.weight_quantizer)
+                    for weight_attr in self.weight_attrs]
+        else:
+            return []
 
     def get_activations_and_quantizers(self, layer: Layer) -> list:
-        return []
+        if self.final_activation_quantization_cfg.enable_activation_quantization:
+            return []
+            # TODO: implement right activation quantizer
+        else:
+            return []
 
     def set_quantize_weights(self, layer: Layer, quantize_weights: List[Tensor]):
         """
@@ -155,26 +192,27 @@ class WeightQuantizeConfig(BaseQuantizeConfig):
             quantize_weights: Quantized weights to set as new weights.
 
         """
-        if len(self.weight_attrs) != len(quantize_weights):
-            raise ValueError(
-                '`set_quantize_weights` called on layer {} with {} '
-                'weight parameters, but layer expects {} values.'.format(
-                    layer.name, len(quantize_weights), len(self.weight_attrs)))  # pragma: no cover
+        if self.final_weights_quantization_cfg.enable_weights_quantization:
+            if len(self.weight_attrs) != len(quantize_weights):
+                raise ValueError(
+                    '`set_quantize_weights` called on layer {} with {} '
+                    'weight parameters, but layer expects {} values.'.format(
+                        layer.name, len(quantize_weights), len(self.weight_attrs)))  # pragma: no cover
 
-        for weight_attr, weight in zip(self.weight_attrs, quantize_weights):
-            current_weight = getattr(layer, weight_attr)
-            if current_weight.shape != weight.shape:
-                raise ValueError('Existing layer weight shape {} is incompatible with'
-                                 'provided weight shape {}'.format(
-                    current_weight.shape, weight.shape))  # pragma: no cover
+            for weight_attr, weight in zip(self.weight_attrs, quantize_weights):
+                current_weight = getattr(layer, weight_attr)
+                if current_weight.shape != weight.shape:
+                    raise ValueError('Existing layer weight shape {} is incompatible with'
+                                     'provided weight shape {}'.format(
+                        current_weight.shape, weight.shape))  # pragma: no cover
 
-            setattr(layer, weight_attr, weight)
+                setattr(layer, weight_attr, weight)
 
     def set_quantize_activations(self, layer, quantize_activations: ListWrapper):
         pass
 
     def get_output_quantizers(self, layer: Layer) -> list:
-        return []
+        return []  # TODO: self.activation_quantizer
 
     @classmethod
     def from_config(cls, config: dict):
@@ -254,7 +292,7 @@ class WeightQuantizeConfig(BaseQuantizeConfig):
         """
         Check whether it equals to another object or not.
         """
-        if not isinstance(other, WeightQuantizeConfig):
+        if not isinstance(other, GradientPTQQuantizeConfig):
             return False
 
         return (self.weight_attrs == other.weight_attrs and

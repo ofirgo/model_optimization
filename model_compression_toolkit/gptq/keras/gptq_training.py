@@ -37,7 +37,7 @@ from model_compression_toolkit.core.common.framework_implementation import Frame
 import numpy as np
 import copy
 from model_compression_toolkit.core.keras.constants import BIAS, USE_BIAS
-from model_compression_toolkit.gptq.keras.quantizer import WeightQuantizeConfig
+from model_compression_toolkit.gptq.keras.quantizer import GradientPTQQuantizeConfig
 from model_compression_toolkit.gptq.keras.optimizers.sam_optimizer import SAM
 
 
@@ -241,7 +241,7 @@ class KerasGPTQTrainer(GPTQTrainer):
 
         for layer in self.fxp_model.layers:
             if isinstance(layer, QuantizeWrapper) and isinstance(
-                    layer.quantize_config, WeightQuantizeConfig):
+                    layer.quantize_config, GradientPTQQuantizeConfig):
                 node = graph.find_node_by_name(layer.layer.name)
                 if len(node) == 0 and isinstance(layer.layer, TensorFlowOpLayer):
                     node = graph.find_node_by_name('_'.join(layer.layer.name.split('_')[3:]))
