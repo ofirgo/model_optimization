@@ -21,7 +21,7 @@ import tensorflow as tf
 # As from Tensorflow 2.6, keras is a separate package and some classes should be imported differently.
 from model_compression_toolkit.core.common.quantization.candidate_node_quantization_config import \
     CandidateNodeQuantizationConfig
-from model_compression_toolkit.gptq.keras.quantizer.gumbel_rounding.gptq_activation_quantizer import \
+from model_compression_toolkit.gptq.keras.quantizer.activation_quantizer.gptq_activation_quantizer import \
     GPTQActivationQuantizer
 
 if tf.__version__ < "2.6":
@@ -73,14 +73,12 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
         if final_weights_quantization_cfg.enable_weights_quantization:
             self._build_weights_quantizer()
         else:
-            pass
-            # TODO: need to define "self.weights_quantizer" or set to None and make sure that it is not being used in this case later
+            self.weight_quantizer = None
 
         if final_activation_quantization_cfg.enable_activation_quantization:
             self._build_activation_quantizer()
         else:
-            pass
-            # TODO: need to define "self.activation_quantizer" or set to None and make sure that it is not being used in this case later
+            self.activation_quantizer = None
 
     def _build_weights_quantizer(self):
         num_bits = self.final_weights_quantization_cfg.weights_n_bits

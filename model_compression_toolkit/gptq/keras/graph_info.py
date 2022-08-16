@@ -80,7 +80,7 @@ def get_gumbel_probability(fxp_model: Model) -> List[tf.Tensor]:
     gumbel_prob_aux: List[tf.Tensor] = []
     for layer in fxp_model.layers:
         if isinstance(layer, QuantizeWrapper) and isinstance(
-                layer.quantize_config, GradientPTQQuantizeConfig):
+                layer.quantize_config, GradientPTQQuantizeConfig) and layer.quantize_config.weight_quantizer is not None:
             gumbel_prob_aux.append(layer.quantize_config.get_gumbel_probability())
     return gumbel_prob_aux
 
