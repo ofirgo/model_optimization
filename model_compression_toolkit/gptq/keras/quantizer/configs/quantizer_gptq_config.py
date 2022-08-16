@@ -250,13 +250,19 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
             Keys must match NodeQuantizationConfig attributes
 
         """
+        quant_config = {}
         weights = {}
-        for weight, quantizer, quantizer_vars in layer._weight_vars:
-            weights.update({KERNEL: quantizer(weight, training=False, weights=quantizer_vars)})
+        activation = {}
 
-        quant_config = {gptq_constants.WEIGHTS_QUANTIZATION_PARAMS: self.weight_quantizer.get_quant_config(layer)}
+        if self.final_weights_quantization_cfg.enable_weights_quantization:
+            for weight, quantizer, quantizer_vars in layer._weight_vars:
+                weights.update({KERNEL: quantizer(weight, training=False, weights=quantizer_vars)})
 
-        return weights, quant_config, {}
+            quant_config = {gptq_constants.WEIGHTS_QUANTIZATION_PARAMS: self.weight_quantizer.get_quant_config(layer)}
+
+        # TODO: implement activation params changes and quant_config changes duo to activation if needed
+
+        return weights, quant_config, activation
 
     def get_trainable_quantizer_parameters(self) -> List[tf.Tensor]:
         """
