@@ -131,15 +131,20 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
         #     initializer=tf.keras.initializers.Constant(0.0),
         #     trainable=True)
 
-        # TODO: How do we load the parameters to the model and turn it to a learnable variable tf.Variable? (activation not weights)
-        #  and how do we get the number of iterations?
-
         # save the quantizer added parameters for later calculations
         # self.quantizer_parameters = {gptq_constants.THRESHOLD_TENSOR: ptq_threshold_tensor,
         #                              gptq_constants.AUXVAR: auxvar_tensor,
         #                              gptq_constants.GPTQ_ITER: ar_iter
         #                              }
-        self.quantizer_parameters = {gptq_constants.ACTIVATION_THRESHOLD: self.threshold_values}
+        activation_threshold = layer.add_weight(
+            name + gptq_constants.ACTIVATION_THRESHOLD,
+            shape=(),
+            initializer=tf.keras.initializers.Constant(1.0),
+            trainable=True)
+        # TODO: trainable should be False like in weights quantizer?
+        activation_threshold.assign(self.threshold_values)
+
+        self.quantizer_parameters = {gptq_constants.ACTIVATION_THRESHOLD: activation_threshold}
         return self.quantizer_parameters
 
     def __call__(self, inputs: tf.Tensor,
@@ -157,30 +162,14 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
         Returns:
             The quantized tensor.
         """
-        pass
-        auxvar = weights[gptq_constants.AUXVAR]
-        ptq_threshold_tensor = weights[gptq_constants.THRESHOLD_TENSOR]
+        activation_threshold = weights[gptq_constants.ACTIVATION_THRESHOLD]
 
-        if self.per_axis:
-            input_shape = inputs.shape
-            n_axis = len(input_shape)
-            quantization_axis = n_axis + self.quantization_axis if self.quantization_axis < 0 else \
-                self.quantization_axis
-            reshape_shape = [-1 if i == quantization_axis else 1 for i in range(n_axis)]
-            ptq_threshold_tensor = tf.reshape(ptq_threshold_tensor, reshape_shape)
-            q_tensor = symmetric_constrained_quantizer(inputs, auxvar,
-                                                       ptq_threshold_tensor,
-                                                       self.num_bits,
-                                                       self.signed,
-                                                       self.power_of_two,
-                                                       max_lsbs_change=self.max_lsbs_change)
-            return q_tensor
-        else:
-            return symmetric_constrained_quantizer(inputs, auxvar,
-                                                   ptq_threshold_tensor,
-                                                   self.num_bits,
-                                                   self.signed,
-                                                   self.power_of_two)
+        return symmetric_constrained_quantizer(inputs,
+                                               auxvar,
+                                               ptq_threshold_tensor,
+                                               self.num_bits,
+                                               self.signed,
+                                               self.power_of_two)
 
     def get_aux_variable(self) -> tf.Tensor:
         return self.quantizer_parameters[gptq_constants.AUXVAR]

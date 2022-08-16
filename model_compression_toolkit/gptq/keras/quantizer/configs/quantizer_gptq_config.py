@@ -176,11 +176,13 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
             return []
 
     def get_activations_and_quantizers(self, layer: Layer) -> list:
-        if self.final_activation_quantization_cfg.enable_activation_quantization:
-            return []
-            # TODO: implement right activation quantizer
-        else:
-            return []
+        # TODO: verify that if we use get_output_quantizers then we don't need to implement thod and add comment (as in SelectiveQuantizeConfig)
+        # if self.final_activation_quantization_cfg.enable_activation_quantization:
+        #     return []
+        #     # TODO: implement right activation quantizer
+        # else:
+        #     return []
+        return []
 
     def set_quantize_weights(self, layer: Layer, quantize_weights: List[Tensor]):
         """
@@ -210,7 +212,8 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
         pass
 
     def get_output_quantizers(self, layer: Layer) -> list:
-        return []  # TODO: self.activation_quantizer
+        return [] if not self.final_activation_quantization_cfg.enable_activation_quantization else \
+            [self.activation_quantizer]
 
     @classmethod
     def from_config(cls, config: dict):
