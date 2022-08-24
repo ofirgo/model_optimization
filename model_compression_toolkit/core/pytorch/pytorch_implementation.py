@@ -42,10 +42,6 @@ from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.ba
     pytorch_batchnorm_folding
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.linear_collapsing import \
     pytorch_linear_collapsing
-from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.multi_head_attention_decomposition \
-    import MultiHeadAttentionDecomposition
-from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.permute_call_method import \
-    PermuteCallMethod
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.relu_bound_to_power_of_2 import \
     ReLUBoundToPowerOfTwo
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.reshape_with_static_shapes import \
@@ -57,13 +53,17 @@ from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.sc
     ScaleEqualizationWithPad
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.shift_negative_activation import \
     pytorch_apply_shift_negative_correction
-from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.softmax_shift import \
-    pytorch_softmax_shift
 from model_compression_toolkit.core.pytorch.mixed_precision.set_layer_to_bitwidth import set_layer_to_bitwidth
 from model_compression_toolkit.core.pytorch.pytorch_node_prior_info import create_node_prior_info
 from model_compression_toolkit.core.pytorch.reader.reader import model_reader
 from model_compression_toolkit.core.pytorch.utils import to_torch_tensor, torch_tensor_to_numpy
 from model_compression_toolkit.gptq.common.gptq_training import GPTQTrainer
+from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.softmax_shift import \
+    pytorch_softmax_shift
+from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.multi_head_attention_decomposition \
+    import MultiHeadAttentionDecomposition
+from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.permute_call_method import PermuteCallMethod
+from model_compression_toolkit.gptq.pytorch.gptq_training import PytorchGPTQTrainer
 
 
 class PytorchImplementation(FrameworkImplementation):
@@ -268,11 +268,17 @@ class PytorchImplementation(FrameworkImplementation):
         """
         return []
 
+    def get_substitutions_virtual_weights_activation_coupling(self) -> List[common.BaseSubstitution]:
+        """
+        Returns: A list of Pytorch substitutions used to build a virtual graph with composed activation-weights pairs.
+        """
+        raise Exception('This feature is currently not yet available for Pytorch models. Work in progress.')
+
     def get_gptq_trainer_obj(self) -> Type[GPTQTrainer]:
         """
         Returns: GPTQTrainer object
         """
-        raise Exception('This feature is currently not yet available for Pytorch models. Work in progress.')
+        return PytorchGPTQTrainer
 
     def get_sensitivity_evaluator(self,
                                   graph: Graph,
@@ -433,3 +439,21 @@ class PytorchImplementation(FrameworkImplementation):
         """
 
         return node.layer_class not in [argmax]
+
+    def get_node_mac_operations(self,
+                                node: BaseNode,
+                                fw_info: FrameworkInfo) -> float:
+        """
+        Gets the MAC operation count for a given operation.
+
+        Args:
+            node: A graph node that wraps the operation for which the MAC count is computed.
+            fw_info: FrameworkInfo object with information about the Pytorch model.
+
+        Returns: The MAC count of the operation
+        """
+
+        # TODO: need to modify when implementing BOPS KPI for Pytorch. Currently, returning inf to prevent
+        #  crashing when running set_final_kpi at the end of Pytorch mixed-precision tests
+
+        return np.inf
