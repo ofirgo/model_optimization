@@ -40,7 +40,7 @@ from model_compression_toolkit.gptq.keras.quantizer.gumbel_rounding.symmetric_gu
 from model_compression_toolkit.gptq.keras.quantizer.gumbel_rounding.uniform_gumbel import UniformGumbelRounding
 from model_compression_toolkit.gptq.keras.quantizer.ste_rounding.symmetric_ste import STEWeightQuantizer
 from model_compression_toolkit.core.common.target_platform.op_quantization_config import QuantizationMethod
-from model_compression_toolkit.core.common.constants import THRESHOLD, RANGE_MAX, RANGE_MIN
+from model_compression_toolkit.core.common.constants import THRESHOLD, RANGE_MAX, RANGE_MIN, SIGNED
 from model_compression_toolkit.core import common
 from model_compression_toolkit.core.common.quantization.node_quantization_config import NodeWeightsQuantizationConfig, \
     NodeActivationQuantizationConfig
@@ -58,10 +58,13 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
                  final_activation_quantization_cfg: NodeActivationQuantizationConfig,
                  gptq_config: GradientPTQConfig):
         """
-        Initialize a TrainableQuantizer and set as the weights quantizer.
+        Initialize a TrainableQuantizer and sets the weights and activation quantizers,
+        based on the provided config.
+
         Args:
             weight_attrs: Attributes of the layer's weights to quantize.
             final_weights_quantization_cfg: quantization config of the current layer.
+            final_activation_quantization_cfg: NodeActivationQuantizationConfig,
             gptq_config: A GPTQ configuration calls.
         """
 
@@ -131,14 +134,16 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
                                                           gumbel_config=self.gptq_config.quantizer_config)
 
     def _build_activation_quantizer(self):
-        if self.final_activation_quantization_cfg.activation_quantization_method in [QuantizationMethod.SYMMETRIC,
-                                                                                     QuantizationMethod.POWER_OF_TWO]:
-            is_power_of_two = QuantizationMethod.POWER_OF_TWO == self.final_activation_quantization_cfg.activation_quantization_method
-            activation_threshold_values = self.final_activation_quantization_cfg.activation_quantization_params.get(THRESHOLD)
-            # self.activation_quantizer = GPTQActivationQuantizer()
+        if self.final_activation_quantization_cfg.activation_quantization_method in [QuantizationMethod.SYMMETRIC]:
+            activation_threshold_value = self.final_activation_quantization_cfg.activation_quantization_params.get(THRESHOLD)
+            num_bits = self.final_activation_quantization_cfg.activation_n_bits
+            signed = self.final_activation_quantization_cfg.activation_quantization_params.get(SIGNED)
+
+            self.activation_quantizer = GPTQActivationQuantizer(num_bits=num_bits,
+                                                                signed=signed,
+                                                                threshold_value=activation_threshold_value)
         else:
-            range_max = self.final_activation_quantization_cfg.activation_quantization_params.get(RANGE_MAX)
-            range_min = self.final_activation_quantization_cfg.activation_quantization_params.get(RANGE_MIN)
+            raise NotImplementedError("Activation GPTQ is currently supported only for Symmetric quantization")
 
     def enable_update(self):
         """
@@ -176,12 +181,8 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
             return []
 
     def get_activations_and_quantizers(self, layer: Layer) -> list:
-        # TODO: verify that if we use get_output_quantizers then we don't need to implement thod and add comment (as in SelectiveQuantizeConfig)
-        # if self.final_activation_quantization_cfg.enable_activation_quantization:
-        #     return []
-        #     # TODO: implement right activation quantizer
-        # else:
-        #     return []
+        # For activation quantization parameters training we use get_output_quantizers,
+        # Therefore, we do not need to implement this method.
         return []
 
     def set_quantize_weights(self, layer: Layer, quantize_weights: List[Tensor]):
@@ -212,8 +213,9 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
         pass
 
     def get_output_quantizers(self, layer: Layer) -> list:
-        return [] if not self.final_activation_quantization_cfg.enable_activation_quantization else \
-            [self.activation_quantizer]
+        return \
+            [] if not self.final_activation_quantization_cfg.enable_activation_quantization \
+            else [self.activation_quantizer]
 
     @classmethod
     def from_config(cls, config: dict):
@@ -236,6 +238,7 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
         return {
             'weight_attrs': self.weight_attrs,
             'final_weights_quantization_cfg': self.final_weights_quantization_cfg,
+            'final_activation_quantization_cfg': self.final_activation_quantization_cfg,
             'gptq_config': self.gptq_config,
         }
 
@@ -253,19 +256,20 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
             Keys must match NodeQuantizationConfig attributes
 
         """
-        quant_config = {}
         weights = {}
-        activation = {}
+        weights_quant_config = {}
+        activation_quant_config = {}
 
         if self.final_weights_quantization_cfg.enable_weights_quantization:
             for weight, quantizer, quantizer_vars in layer._weight_vars:
                 weights.update({KERNEL: quantizer(weight, training=False, weights=quantizer_vars)})
 
-            quant_config = {gptq_constants.WEIGHTS_QUANTIZATION_PARAMS: self.weight_quantizer.get_quant_config(layer)}
+            weights_quant_config = {gptq_constants.WEIGHTS_QUANTIZATION_PARAMS: self.weight_quantizer.get_quant_config(layer)}
 
-        # TODO: implement activation params changes and quant_config changes duo to activation if needed
+        if self.final_activation_quantization_cfg.enable_activation_quantization:
+            activation_quant_config = {gptq_constants.ACTIVATION_QUANTIZATION_PARAMS: self.activation_quantizer.get_quant_config(layer)}
 
-        return weights, quant_config, activation
+        return weights, weights_quant_config, activation_quant_config
 
     def get_trainable_quantizer_parameters(self) -> List[tf.Tensor]:
         """
@@ -280,8 +284,11 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
     def get_aux_variable(self) -> List[tf.Tensor]:
         return [self.weight_quantizer.get_aux_variable()]
 
-    def get_quantization_variable(self) -> List[tf.Tensor]:
+    def get_weights_quantization_variable(self) -> List[tf.Tensor]:
         return self.weight_quantizer.get_quantization_variable()
+
+    def get_activation_quantization_variable(self) -> List[tf.Tensor]:
+        return self.activation_quantizer.get_quantization_variable()
 
     def get_temperature_variable(self) -> tf.Tensor:
         if self.gptq_config.is_gumbel:
@@ -304,6 +311,7 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
 
         return (self.weight_attrs == other.weight_attrs and
                 self.weight_quantizer == other.weight_quantizer and
+                self.activation_quantizer == other.activation_quantizer and
                 self.gptq_config == other.gptq_config)
 
     def __ne__(self, other: Any) -> bool:

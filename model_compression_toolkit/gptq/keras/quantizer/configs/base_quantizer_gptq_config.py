@@ -26,9 +26,18 @@ class BaseQuantizeConfig(QuantizeConfig):
     """
 
     @abc.abstractmethod
-    def get_quantization_variable(self):
+    def get_weights_quantization_variable(self):
         """
-        A Functions that get the quantization parameters such as threshold, min, max ,etc.
+        A Functions that get the weights quantization parameters such as threshold, min, max ,etc.
+
+        Returns: A list of trainable variable
+
+        """
+
+    @abc.abstractmethod
+    def get_activation_quantization_variable(self):
+        """
+        A Functions that get the activation quantization parameters such as threshold, min, max ,etc.
 
         Returns: A list of trainable variable
 

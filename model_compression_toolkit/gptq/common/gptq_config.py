@@ -88,7 +88,9 @@ class GradientPTQConfig:
                  norm_weights: bool = False,
                  quantizer_config: GumbelConfig = GumbelConfig(),
                  optimizer_quantization_parameter: Any = None,
-                 optimizer_bias: Any = None):
+                 optimizer_bias: Any = None,
+                 activation_parameters_learning: bool = False,
+                 optimizer_activation_params: Any = None):
         """
         Initialize a GradientPTQConfig.
 
@@ -135,6 +137,8 @@ class GradientPTQConfig:
         self.quantizer_config = quantizer_config
         self.optimizer_quantization_parameter = optimizer_quantization_parameter
         self.optimizer_bias = optimizer_bias
+        self.activation_parameters_learning = activation_parameters_learning
+        self.optimizer_activation_params = optimizer_activation_params
 
     @property
     def is_gumbel(self) -> bool:

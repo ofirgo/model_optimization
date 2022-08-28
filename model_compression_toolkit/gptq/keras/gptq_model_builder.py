@@ -75,12 +75,10 @@ class GPTQKerasModelBuilder(KerasModelBuilder):
 
         """
 
-        # if node.is_all_activation_candidates_equal():
-        #     # otherwise, we want to use the float tensor when building the model and quantize dynamically during
-        #     # optimization, and not with a pre-defined fake quant
-        #     return node.final_activation_quantization_cfg.quantize_node_output(input_tensors)
-        return input_tensors
-        # return node.final_activation_quantization_cfg.quantize_node_output(input_tensors)
+        if self.gptq_config.activation_parameters_learning:
+            return input_tensors
+        else:
+            return node.final_activation_quantization_cfg.quantize_node_output(input_tensors)
 
     def build_model(self) -> Tuple[Model, UserInformation]:
         """

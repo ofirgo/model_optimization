@@ -41,25 +41,13 @@ def quantization_config_builder_gptq(n: common.BaseNode,
         A QuantizeConfig object with the appropriate quantizers (according to the node's
         quantization configuration).
     """
-    #
-    # if n.is_weights_quantization_enabled() and n.is_activation_quantization_enabled():
-    #     qc = GradientPTQQuantizeConfig(fw_info.get_kernel_op_attributes(n.type),
-    #                               n.final_weights_quantization_cfg,
-    #                                    n.final_activation_quantization_cfg,
-    #                               gptq_config)
-    # elif n.is_activation_quantization_enabled() and not n.is_weights_quantization_enabled():
-    #     qc = NoOpQuantizeConfig()  # Quantization is Preformed using fake quantization node
-    # elif n.is_weights_quantization_enabled() and not n.is_activation_quantization_enabled():
-    #     qc = GradientPTQQuantizeConfig(fw_info.get_kernel_op_attributes(n.type),
-    #                               n.final_weights_quantization_cfg,
-    #                                    n.final_activation_quantization_cfg,
-    #                               gptq_config)
 
     if n.is_weights_quantization_enabled() or n.is_activation_quantization_enabled():
         qc = GradientPTQQuantizeConfig(fw_info.get_kernel_op_attributes(n.type),
                                        n.final_weights_quantization_cfg,
                                        n.final_activation_quantization_cfg,
                                        gptq_config)
+
     elif not n.is_weights_quantization_enabled() and not n.is_activation_quantization_enabled():
         qc = NoOpQuantizeConfig()
 

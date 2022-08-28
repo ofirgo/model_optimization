@@ -15,85 +15,62 @@
 import tensorflow as tf
 import numpy as np
 
-from model_compression_toolkit import GumbelConfig
 from model_compression_toolkit.core.keras.quantizer.base_quantizer import BaseTrainableQuantizer
 from model_compression_toolkit.gptq.keras.quantizer import quant_utils as qutils
-from model_compression_toolkit.gptq.keras.quantizer.gumbel_rounding.base_gumbel_rounding import GumbelRoundingBase
 from tensorflow_model_optimization.python.core.quantization.keras.quantize_wrapper import QuantizeWrapper
 from tensorflow.python.framework.tensor_shape import TensorShape
-from model_compression_toolkit.core.common.defaultdict import DefaultDict
 from typing import Dict, Any, List
-from model_compression_toolkit.gptq.keras.quantizer.gumbel_rounding.gumbel_softmax import gumbel_softmax, ste_gumbel
-from model_compression_toolkit.core.common.constants import THRESHOLD
+from model_compression_toolkit.core.common.constants import THRESHOLD, SIGNED
 from model_compression_toolkit.gptq.common import gptq_constants
 
-# def symmetric_constrained_quantizer(input_tensor: tf.Tensor,
-#                                     auxvar_tensor: tf.Variable,
-#                                     max_tensor: tf.Tensor,
-#                                     num_bits: int,
-#                                     signed: bool,
-#                                     power_of_two: bool,
-#                                     max_lsbs_change: int = 1) -> tf.Tensor:
-#     """
-#     Quantize a tensor symmetrically with maximum LSBs shift.
-#     Args:
-#         input_tensor: Tensor to quantize. values of this tensor are not changed during gptq.
-#         auxvar_tensor: Tensor that manifests the bit shift the weight due to gptq
-#         max_tensor: Tensor with max values to compute the threshold.
-#         num_bits: Num of bits to use.
-#         signed: Signedness of the quantization range.
-#         power_of_two: Whether the threshold should be constrained or not.
-#         max_lsbs_change: maximum number of LSBs that the auxvar is allowed to change
-#
-#     Returns:
-#         A quantized tensor.
-#     """
-#
-#     if power_of_two:
-#         max_tensor = qutils.power_of_two_max(max_tensor)
-#     delta = qutils.calculate_delta(max_tensor, num_bits, signed)
-#     input_tensor_int = tf.stop_gradient(tf.round(input_tensor / delta))
-#     tensor_q = qutils.ste_round(
-#         input_tensor_int + qutils.ste_clip(auxvar_tensor, max_val=max_lsbs_change * delta) / delta)
-#     min_int = -int(signed) * (2 ** (num_bits - int(signed)))
-#     max_int = (2 ** (num_bits - int(signed))) - 1
-#     return delta * qutils.ste_clip(tensor_q, max_val=max_int, min_val=min_int)
+
+def symmetric_constrained_quantizer(input_tensor: tf.Tensor,
+                                    activation_threshold: tf.Variable,
+                                    num_bits: int,
+                                    signed: bool) -> tf.Tensor:
+    """
+    Quantize a tensor symmetrically with maximum LSBs shift.
+    Args:
+        input_tensor: Tensor to quantize. values of this tensor are not changed during gptq.
+        activation_threshold: The activation quantization threshold variable.
+        num_bits: Num of bits to use.
+        signed: Signedness of the quantization range.
+
+    Returns:
+        A quantized tensor.
+    """
+
+    delta = qutils.calculate_delta(tf.convert_to_tensor(activation_threshold), num_bits, signed)
+    input_tensor_int = tf.stop_gradient(tf.round(input_tensor / delta))
+    tensor_q = qutils.ste_round(input_tensor_int / delta)
+    min_int = -int(signed) * (2 ** (num_bits - int(signed)))
+    max_int = (2 ** (num_bits - int(signed))) - 1
+    return delta * qutils.ste_clip(tensor_q, max_val=max_int, min_val=min_int)
 
 
 class GPTQActivationQuantizer(BaseTrainableQuantizer):
     """
-    Trainable constrained quantizer to quantize a layer inputs.
+    Trainable symmetric quantizer to quantize a layer activation.
     """
     ACTIVATION_PTQ_THRESHOLD = "_activation_ptq_threshold"
 
     def __init__(self,
                  num_bits: int,
                  signed: bool,
-                 power_of_two: bool,
-                 threshold_values: np.ndarray,
-                 max_lsbs_change_map: dict = DefaultDict({}, lambda: 1)):
+                 threshold_value: np.ndarray):
         """
-        Initialize a TrainableWeightQuantizer object with parameters to use
+        Initialize a GPTQActivationQuantizer object with trainable threshold to use
         for the quantization.
 
         Args:
             num_bits: Number of bits to use for the quantization.
-            per_axis: Whether to quantize per-channel or per-tensor.
             signed: Signedness to use for the quantization range.
-            threshold_values: Threshold to use for the quantization.
-            gumbel_config: A class with the gumbel rounding configurations.
-            quantization_axis: Axis of tensor to use for the quantization.
-            power_of_two: Whether the threshold should be constrained or not.
-            max_lsbs_change_map: a mapping between number of bits to max lsb change.
-            max_iteration: The number of iteration of gptq.
+            threshold_value: Threshold to use for the quantization.
         """
 
-        self.threshold_values = threshold_values
+        self.threshold_value = threshold_value
         self.num_bits = num_bits
         self.signed = signed
-        self.threshold_values = threshold_values
-        self.power_of_two = power_of_two
-        self.max_lsbs_change = max_lsbs_change_map.get(num_bits)
         self.quantizer_parameters = {}
 
     def build(self,
@@ -101,7 +78,7 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
               name: str,
               layer: QuantizeWrapper) -> Dict[str, tf.Variable]:
         """
-        Add min and max variables to layer.
+        Add threshold variable to layer.
         Args:
             tensor_shape: Tensor shape the quantizer quantize.
             name: Prefix of variables names.
@@ -111,38 +88,13 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
         Returns:
             Dictionary of new variables.
         """
-        # w_shape = get_kernel(layer.weights).shape
-        # ar_iter = layer.add_weight(
-        #     name + gptq_constants.GPTQ_ITER,
-        #     shape=(),
-        #     initializer=tf.keras.initializers.Constant(0.0),
-        #     trainable=False)
 
-        # ptq_threshold_tensor = layer.add_weight(
-        #     name + gptq_constants.THRESHOLD_TENSOR,
-        #     shape=len(self.threshold_values) if self.per_axis else (),
-        #     initializer=tf.keras.initializers.Constant(1.0),
-        #     trainable=False)
-        # ptq_threshold_tensor.assign(self.threshold_values)
-        #
-        # auxvar_tensor = layer.add_weight(
-        #     name + gptq_constants.AUXVAR,
-        #     shape=w_shape,
-        #     initializer=tf.keras.initializers.Constant(0.0),
-        #     trainable=True)
-
-        # save the quantizer added parameters for later calculations
-        # self.quantizer_parameters = {gptq_constants.THRESHOLD_TENSOR: ptq_threshold_tensor,
-        #                              gptq_constants.AUXVAR: auxvar_tensor,
-        #                              gptq_constants.GPTQ_ITER: ar_iter
-        #                              }
         activation_threshold = layer.add_weight(
             name + gptq_constants.ACTIVATION_THRESHOLD,
             shape=(),
             initializer=tf.keras.initializers.Constant(1.0),
             trainable=True)
-        # TODO: trainable should be False like in weights quantizer?
-        activation_threshold.assign(self.threshold_values)
+        activation_threshold.assign(self.threshold_value)
 
         self.quantizer_parameters = {gptq_constants.ACTIVATION_THRESHOLD: activation_threshold}
         return self.quantizer_parameters
@@ -153,10 +105,11 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
                  **kwargs: Dict[str, Any]):
         """
         Quantize a tensor.
+
         Args:
             inputs: Input tensor to quantize.
             training: Whether the graph is in training mode.
-            weights: Dictionary of weights the quantizer can use to quantize the tensor.
+            weights: Dictionary of parameters the quantizer can use to quantize the tensor.
             **kwargs: Additional variables the quantizer may receive.
 
         Returns:
@@ -165,14 +118,9 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
         activation_threshold = weights[gptq_constants.ACTIVATION_THRESHOLD]
 
         return symmetric_constrained_quantizer(inputs,
-                                               auxvar,
-                                               ptq_threshold_tensor,
+                                               tf.convert_to_tensor(activation_threshold),
                                                self.num_bits,
-                                               self.signed,
-                                               self.power_of_two)
-
-    def get_aux_variable(self) -> tf.Tensor:
-        return self.quantizer_parameters[gptq_constants.AUXVAR]
+                                               self.signed)
 
     def get_config(self) -> Dict[str, Any]:
         """
@@ -181,9 +129,8 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
 
         return {
             'num_bits': self.num_bits,
-            'per_axis': self.per_axis,
-            'symmetric': self.symmetric,
-            'power_of_two': self.power_of_two
+            'signed': self.signed,
+            'threshold_value': self.threshold_value
         }
 
     def get_quant_config(self, layer) -> Dict[str, np.ndarray]:
@@ -198,8 +145,10 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
             Keys must match NodeQuantizationConfig attributes
 
         """
-        old_threshold = self.quantizer_parameters[gptq_constants.THRESHOLD_TENSOR]
-        return {THRESHOLD: old_threshold.numpy().reshape(self.threshold_shape)}
+        threshold = self.quantizer_parameters[gptq_constants.ACTIVATION_THRESHOLD]
+
+        return {THRESHOLD: threshold.numpy(),
+                SIGNED: self.signed}
 
     def get_trainable_parameters(self):
         """
@@ -217,7 +166,7 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
          Returns: A list of the quantizer parameters
 
          """
-        return [self.quantizer_parameters[gptq_constants.THRESHOLD_TENSOR]]
+        return [self.quantizer_parameters[gptq_constants.ACTIVATION_THRESHOLD]]
 
     def __eq__(self, other: Any) -> bool:
         """
@@ -228,12 +177,12 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
         Returns:
             Whether they are equal or not.
         """
-        if not isinstance(other, STEWeightQuantizer):
+        if not isinstance(other, GPTQActivationQuantizer):
             return False
 
         return (self.num_bits == other.num_bits and
-                self.per_axis == other.per_axis and
-                self.symmetric == other.symmetric)
+                self.signed == other.signed and
+                self.threshold_value == other.threshold_value)
 
     def __ne__(self, other: Any) -> bool:
         """

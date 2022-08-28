@@ -46,13 +46,14 @@ def get_trainable_parameters(fxp_model: Model,
     trainable_threshold: List[tf.Tensor] = []
     bias_weights: List[List[tf.Tensor]] = []
     temperature_weights: List[tf.Tensor] = []
+    trainable_activation_threshold: List[tf.Tensor] = []
     for layer in fxp_model.layers:
         if isinstance(layer, QuantizeWrapper) and isinstance(
                 layer.quantize_config, GradientPTQQuantizeConfig):
             # collect trainable weights per layer
             if layer.quantize_config.final_weights_quantization_cfg.enable_weights_quantization:
                 layer_trainable_weights = layer.quantize_config.get_aux_variable()
-                layer_trainable_threshold = layer.quantize_config.get_quantization_variable()
+                layer_trainable_threshold = layer.quantize_config.get_weights_quantization_variable()
                 if is_gumbel:
                     temperature_weights.append(layer.quantize_config.get_temperature_variable())
 
@@ -64,8 +65,11 @@ def get_trainable_parameters(fxp_model: Model,
                         bias_weights.append([layer.layer.bias])
                 trainable_weights.append(layer_trainable_weights)
                 trainable_threshold.extend(layer_trainable_threshold)
+            if layer.quantize_config.final_activation_quantization_cfg.enable_activation_quantization:
+                layer_trainable_activation_threshold = layer.quantize_config.get_activation_quantization_variable()
+                trainable_activation_threshold.extend(layer_trainable_activation_threshold)
 
-    return trainable_weights, bias_weights, trainable_threshold, temperature_weights
+    return trainable_weights, bias_weights, trainable_threshold, temperature_weights, trainable_activation_threshold
 
 
 def get_gumbel_probability(fxp_model: Model) -> List[tf.Tensor]:

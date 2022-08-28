@@ -76,19 +76,19 @@ class KerasGPTQTrainer(GPTQTrainer):
         self.loss_list = []
         self.input_scale = 1
 
-        trainable_weights, bias_weights, trainable_threshold, temperature_weights = get_trainable_parameters(
-            self.fxp_model,
-            fw_info,
-            add_bias=True,
-            is_gumbel=gptq_config.is_gumbel)
+        trainable_weights, bias_weights, trainable_threshold, temperature_weights, trainable_activation_threshold = \
+            get_trainable_parameters(self.fxp_model,
+                                     fw_info,
+                                     add_bias=True,
+                                     is_gumbel=gptq_config.is_gumbel)
 
         self.flp_weights_list, self.fxp_weights_list = get_weights_for_loss(self.fxp_model)
 
-        if not (len(self.compare_points) == len(trainable_weights) == len(self.flp_weights_list) == len(
-                self.fxp_weights_list)):
-            raise Exception(
-                "GPTQ: Mismatch between number of compare points, number of layers with trainable weights " +
-                "and number of float and quantized weights for loss")
+        # if not (len(self.compare_points) == len(trainable_weights) == len(self.flp_weights_list) == len(
+        #         self.fxp_weights_list)):
+        #     raise Exception(
+        #         "GPTQ: Mismatch between number of compare points, number of layers with trainable weights " +
+        #         "and number of float and quantized weights for loss")
 
         flattened_trainable_weights = [w for layer_weights in trainable_weights for w in layer_weights]
         flattened_bias_weights = [w for layer_weights in bias_weights for w in layer_weights]
@@ -96,7 +96,8 @@ class KerasGPTQTrainer(GPTQTrainer):
         self.optimizer_with_param = self.get_optimizer_with_param(flattened_trainable_weights,
                                                                   flattened_bias_weights,
                                                                   trainable_quantization_parameters,
-                                                                  temperature_weights)
+                                                                  temperature_weights,
+                                                                  trainable_activation_threshold)
         self.has_params_to_train = np.sum([len(optimizer_params_tuple[1]) for optimizer_params_tuple in self.optimizer_with_param])>0
 
         if self.float_user_info.input_scale != self.gptq_user_info.input_scale:

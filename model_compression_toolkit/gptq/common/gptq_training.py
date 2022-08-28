@@ -70,7 +70,8 @@ class GPTQTrainer(ABC):
                                  flattened_trainable_weights: List[Any],
                                  flattened_bias_weights: List[Any],
                                  trainable_quantization_parameters: List[Any],
-                                 temperature_weights: List[Any]) -> List[Any]:
+                                 temperature_weights: List[Any],
+                                 trainable_activation_threshold: List[Any]) -> List[Any]:
         """
         Create Optimizers with their trainable parameters
         Args:
@@ -108,6 +109,8 @@ class GPTQTrainer(ABC):
                     Logger.error(
                         "To enable bias micro training an additional optimizer is required, please define the optimizer_rest")
             optimizer_with_param.append((self.gptq_config.optimizer_rest, w2train_res))
+
+        optimizer_with_param.append((self.gptq_config.optimizer_activation_params, [*trainable_activation_threshold]))
 
         return optimizer_with_param
 
