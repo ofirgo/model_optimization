@@ -88,8 +88,12 @@ class GPTQTrainer(ABC):
             if self.gptq_config.quantizer_config.temperature_learning:
                 w2train.extend(temperature_weights)
 
-        optimizer_with_param = [(self.gptq_config.optimizer, w2train)]
-        if self.gptq_config.train_bias or self.gptq_config.quantization_parameters_learning:
+        optimizer_with_param = []
+        if len(w2train) > 0:
+            optimizer_with_param = [(self.gptq_config.optimizer, w2train)]
+
+        if self.gptq_config.train_bias or self.gptq_config.quantization_parameters_learning \
+                or self.gptq_config.activation_parameters_learning:
             w2train_res = []
             if self.gptq_config.train_bias:
                 if self.gptq_config.optimizer_bias is not None:
@@ -108,12 +112,18 @@ class GPTQTrainer(ABC):
                 if self.gptq_config.optimizer_rest is None:
                     Logger.error(
                         "To enable bias micro training an additional optimizer is required, please define the optimizer_rest")
-            optimizer_with_param.append((self.gptq_config.optimizer_rest, w2train_res))
 
-        optimizer_with_param.append((self.gptq_config.optimizer_activation_params, [*trainable_activation_threshold]))
+            if self.gptq_config.activation_parameters_learning:
+                if self.gptq_config.optimizer_activation_params is not None:
+                    optimizer_with_param.append((self.gptq_config.optimizer_activation_params,
+                                                 [*trainable_activation_threshold]))
+                else:
+                    w2train_res.extend(trainable_activation_threshold)
+
+            if len(w2train_res) > 0:
+                optimizer_with_param.append((self.gptq_config.optimizer_rest, w2train_res))
 
         return optimizer_with_param
-
 
     def compute_jacobian_based_weights(self,
                                        representative_data_gen: Callable) -> np.ndarray:

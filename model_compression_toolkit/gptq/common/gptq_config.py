@@ -115,6 +115,8 @@ class GradientPTQConfig:
             quantizer_config (Any): A class the contins the quantizer specific config.
             optimizer_quantization_parameter (Any): Optimizer to override the rest optimizer  for quantizer parameters.
             optimizer_bias (Any): Optimizer to override the rest optimizerfor bias.
+            activation_parameters_learning (bool): Whether to update the activation quantization param during the training or not.
+            optimizer_activation_params (Any): Optimizer to use for activation quantization parameters.
 
         """
         self.n_iter = n_iter

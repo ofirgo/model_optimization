@@ -256,7 +256,6 @@ class KerasModelBuilder(BaseModelBuilder):
             out_tensors_of_n_float = input_nodes_to_input_tensors[n]
             out_tensors_of_n = out_tensors_of_n_float
             if n.is_activation_quantization_enabled():
-                # TODO: these calls to _quantize_node_activation can be removed since we want to build a model without fake quants (at first)
                 out_tensors_of_n = self._quantize_node_activations(n, out_tensors_of_n_float)
 
         else:
