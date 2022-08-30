@@ -43,10 +43,6 @@ LAST_AXIS = -1
 DATA_TYPE = 'dtype'
 FLOAT_32 = 'float32'
 
-# Common layers attributes and operations names:
-ACTIVATION = 'activation'
-LINEAR = 'linear'
-
 # Version
 LATEST = 'latest'
 
@@ -57,7 +53,6 @@ NUM_SAMPLES_DISTANCE_TENSORBOARD = 20
 SHIFT_NEGATIVE_NON_LINEAR_NUM_BITS = 16
 
 # Default bitwidth for disabled quantization candidate
-DEFAULT_CANDIDATE_BITWIDTH = 16
 FLOAT_BITWIDTH = 32
 
 # In Mixed-Precision, a node can have multiple candidates for weights and activations quantization configuration.
