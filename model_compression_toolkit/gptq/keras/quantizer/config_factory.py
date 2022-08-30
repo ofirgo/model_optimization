@@ -35,7 +35,7 @@ def quantization_config_builder_gptq(n: common.BaseNode,
     Args:
         n: Node to build its QuantizeConfig.
         fw_info: Framework information (e.g., mapping from layers to their attributes to quantize).
-        gptq_config: GPTQ Configuration class..
+        gptq_config: GPTQ Configuration class.
 
     Returns:
         A QuantizeConfig object with the appropriate quantizers (according to the node's

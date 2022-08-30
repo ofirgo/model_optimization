@@ -29,7 +29,8 @@ def symmetric_constrained_quantizer(input_tensor: tf.Tensor,
                                     num_bits: int,
                                     signed: bool) -> tf.Tensor:
     """
-    Quantize a tensor symmetrically with maximum LSBs shift.
+    Quantize a tensor symmetrically with a given threshold.
+
     Args:
         input_tensor: Tensor to quantize. values of this tensor are not changed during gptq.
         activation_threshold: The activation quantization threshold variable.
@@ -79,6 +80,7 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
               layer: QuantizeWrapper) -> Dict[str, tf.Variable]:
         """
         Add threshold variable to layer.
+
         Args:
             tensor_shape: Tensor shape the quantizer quantize.
             name: Prefix of variables names.
@@ -99,7 +101,8 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
         self.quantizer_parameters = {gptq_constants.ACTIVATION_THRESHOLD: activation_threshold}
         return self.quantizer_parameters
 
-    def __call__(self, inputs: tf.Tensor,
+    def __call__(self,
+                 inputs: tf.Tensor,
                  training: bool,
                  weights: Dict[str, tf.Variable],
                  **kwargs: Dict[str, Any]):

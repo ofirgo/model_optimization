@@ -79,6 +79,7 @@ class GPTQTrainer(ABC):
             flattened_bias_weights: list of trainable bias parameters (flattened)
             trainable_quantization_parameters: list of trainable quantization parameters
             temperature_weights: list of temperature weights variables
+            trainable_activation_threshold: list of trainable activation quantization parameters
         Returns:
             List of Optimizer objects with parameters
         """

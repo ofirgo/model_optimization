@@ -18,12 +18,10 @@ from typing import List, Tuple, Any, Dict
 from tensorflow import Tensor
 import tensorflow as tf
 
-# As from Tensorflow 2.6, keras is a separate package and some classes should be imported differently.
-from model_compression_toolkit.core.common.quantization.candidate_node_quantization_config import \
-    CandidateNodeQuantizationConfig
 from model_compression_toolkit.gptq.keras.quantizer.activation_quantizer.gptq_activation_quantizer import \
     GPTQActivationQuantizer
 
+# As from Tensorflow 2.6, keras is a separate package and some classes should be imported differently.
 if tf.__version__ < "2.6":
     from tensorflow.python.keras.layers import Layer
 else:
@@ -63,8 +61,8 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
 
         Args:
             weight_attrs: Attributes of the layer's weights to quantize.
-            final_weights_quantization_cfg: quantization config of the current layer.
-            final_activation_quantization_cfg: NodeActivationQuantizationConfig,
+            final_weights_quantization_cfg: weights quantization config of the current layer.
+            final_activation_quantization_cfg: activation quantization config of the current layer.
             gptq_config: A GPTQ configuration calls.
         """
 
@@ -84,6 +82,10 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
             self.activation_quantizer = None
 
     def _build_weights_quantizer(self):
+        """
+        Initializes the weights quantizer for this node.
+        """
+
         num_bits = self.final_weights_quantization_cfg.weights_n_bits
         weight_channel_axis = self.final_weights_quantization_cfg.weights_channels_axis
         max_lsbs_change_map = self.gptq_config.lsb_change_per_bit_width
@@ -134,6 +136,10 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
                                                           gumbel_config=self.gptq_config.quantizer_config)
 
     def _build_activation_quantizer(self):
+        """
+        Initializes the activation quantizer for this node.
+        """
+
         if self.final_activation_quantization_cfg.activation_quantization_method in [QuantizationMethod.SYMMETRIC]:
             activation_threshold_value = self.final_activation_quantization_cfg.activation_quantization_params.get(THRESHOLD)
             num_bits = self.final_activation_quantization_cfg.activation_n_bits
@@ -213,6 +219,15 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
         pass
 
     def get_output_quantizers(self, layer: Layer) -> list:
+        """
+        Gets a list with the layer's activation quantizer.
+
+        Args:
+            layer: The layer to get its activation quantizer.
+
+        Returns: A list with the layer's activation quantizer (if activation quantization is enabled).
+
+        """
         return \
             [] if not self.final_activation_quantization_cfg.enable_activation_quantization \
             else [self.activation_quantizer]

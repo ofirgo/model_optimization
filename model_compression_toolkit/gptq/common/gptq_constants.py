@@ -2,7 +2,6 @@ AUXVAR = 'auxvar_tensor'
 ITERVAR = 'iteration_variable'
 THRESHOLD_TENSOR = "ptq_threshold_tensor"
 ACTIVATION_THRESHOLD = "_ptq_threshold_activation"
-ACTIVATION_AUXVAR = 'auxvar_activation'
 GPTQ_ITER = "_gptq_iter"
 AUXSHIFT = '_shift'
 TEMP = '_temp'

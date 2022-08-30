@@ -65,6 +65,7 @@ class GPTQKerasModelBuilder(KerasModelBuilder):
                                    input_tensors: List[TFReference]) -> List[TFReference]:
         """
         Quantize node's activation given input tensors.
+        If running GPTQ with activation parameters learning, then the input is not quantized.
 
         Args:
             node: Node to quantize its outputs.
