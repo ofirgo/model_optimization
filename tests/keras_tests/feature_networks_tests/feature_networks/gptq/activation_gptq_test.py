@@ -16,6 +16,7 @@ from typing import List
 
 import numpy as np
 import tensorflow as tf
+from keras.layers import TFOpLambda
 
 import model_compression_toolkit as mct
 import model_compression_toolkit.gptq.common.gptq_config
@@ -25,9 +26,7 @@ from model_compression_toolkit.core.keras.default_framework_info import DEFAULT_
 from model_compression_toolkit.core.tpc_models.default_tpc.v1.tpc_keras import generate_keras_tpc
 from model_compression_toolkit.gptq.keras.gptq_loss import multiple_tensors_mse_loss
 from tests.common_tests.helpers.generate_test_tp_model import generate_test_tp_model
-from tests.common_tests.helpers.tensors_compare import cosine_similarity
 from tests.keras_tests.feature_networks_tests.base_keras_feature_test import BaseKerasFeatureNetworkTest
-from tests.keras_tests.tpc_keras import get_16bit_tpc
 
 keras = tf.keras
 layers = keras.layers
@@ -112,14 +111,14 @@ class ActivationGradientPTQBaseTest(BaseKerasFeatureNetworkTest):
                                                                                              target_platform_capabilities=self.get_tpc(),
                                                                                              new_experimental_exporter=experimental_exporter
                                                                                              )
-            ptq_gptq_model, quantization_info = mct.keras_gradient_post_training_quantization_experimental(model_float,
-                                                                                             self.representative_data_gen,
-                                                                                             gptq_config=self.get_gptq_config(),
-                                                                                             target_kpi=self.get_kpi(),
-                                                                                             core_config=self.get_core_config(),
-                                                                                             target_platform_capabilities=self.get_tpc(),
-                                                                                             new_experimental_exporter=experimental_exporter
-                                                                                             )
+            gptq_model, quantization_info = mct.keras_gradient_post_training_quantization_experimental(model_float,
+                                                                                                       self.representative_data_gen,
+                                                                                                       gptq_config=self.get_gptq_config(),
+                                                                                                       target_kpi=self.get_kpi(),
+                                                                                                       core_config=self.get_core_config(),
+                                                                                                       target_platform_capabilities=self.get_tpc(),
+                                                                                                       new_experimental_exporter=experimental_exporter
+                                                                                                       )
         else:
 
             ptq_model, quantization_info = mct.keras_post_training_quantization(model_float, representative_data_gen,
@@ -128,28 +127,42 @@ class ActivationGradientPTQBaseTest(BaseKerasFeatureNetworkTest):
                                                                                 fw_info=DEFAULT_KERAS_INFO,
                                                                                 network_editor=self.get_network_editor(),
                                                                                 target_platform_capabilities=tpc)
-            ptq_gptq_model, quantization_info = mct.keras_post_training_quantization(model_float, representative_data_gen,
-                                                                                     n_iter=self.num_calibration_iter,
-                                                                                     quant_config=qc,
-                                                                                     fw_info=DEFAULT_KERAS_INFO,
-                                                                                     network_editor=self.get_network_editor(),
-                                                                                     gptq_config=self.get_gptq_config(),
-                                                                                     target_platform_capabilities=tpc)
+            gptq_model, quantization_info = mct.keras_post_training_quantization(model_float, representative_data_gen,
+                                                                                 n_iter=self.num_calibration_iter,
+                                                                                 quant_config=qc,
+                                                                                 fw_info=DEFAULT_KERAS_INFO,
+                                                                                 network_editor=self.get_network_editor(),
+                                                                                 gptq_config=self.get_gptq_config(),
+                                                                                 target_platform_capabilities=tpc)
 
-        self.compare(ptq_model, ptq_gptq_model, input_x=x, quantization_info=quantization_info)
+        self.compare(ptq_model, gptq_model, input_x=x, quantization_info=quantization_info)
+
+    def verify_threshold_training(self, quantized_model, gptq_model):
+            thresholds_diff = []
+            # Skipping input layer activation since its threshold is not being trained
+            for q_layer, g_layer in zip(quantized_model.layers[2:], gptq_model.layers[2:]):
+                if isinstance(q_layer, TFOpLambda) and len(list(q_layer.inbound_nodes[0].call_kwargs.keys())) > 0:
+                    q_max_level = q_layer.inbound_nodes[0].call_kwargs.get('max')
+                    q_nbits = q_layer.inbound_nodes[0].call_kwargs.get('num_bits')
+                    q_threshold = q_max_level / (2 ** q_nbits - 1) + q_max_level
+
+                    g_max_level = g_layer.inbound_nodes[0].call_kwargs.get('max')
+                    g_nbits = g_layer.inbound_nodes[0].call_kwargs.get('num_bits')
+                    g_threshold = g_max_level / (2 ** g_nbits - 1) + g_max_level
+
+                    thresholds_diff.append(not np.isclose(q_threshold - g_threshold, 0, atol=1e-5))
+
+            # Check that at least one activation threshold has been changed due to training
+            self.unit_test.assertTrue(np.any(thresholds_diff),
+                                      "None of the activation thresholds have been changed due to GPTQ training")
 
 
 class ActivationGradientPTQTest(ActivationGradientPTQBaseTest):
-
-    def compare(self, quantized_model, ptq_gptq_model, input_x=None, quantization_info=None):
-        y = ptq_gptq_model(input_x)
-        y_hat = quantized_model(input_x)
-        cs = cosine_similarity(y.numpy(), y_hat.numpy())
-        self.unit_test.assertTrue(np.isclose(cs, 1, atol=1e-3), msg=f'fail cosine similarity check: {cs}')
+    def compare(self, quantized_model, gptq_model, input_x=None, quantization_info=None):
+        self.verify_threshold_training(quantized_model, gptq_model)
 
 
 class ActivationGradientPTQWeightedLossTest(ActivationGradientPTQBaseTest):
-
     def get_gptq_config(self):
         return model_compression_toolkit.gptq.common.gptq_config.GradientPTQConfig(5,
                                                                                    optimizer=tf.keras.optimizers.Adam(
@@ -165,8 +178,41 @@ class ActivationGradientPTQWeightedLossTest(ActivationGradientPTQBaseTest):
                                                                                    optimizer_activation_params=tf.keras.optimizers.Adam(
                                                                                        learning_rate=0.0001))
 
-    def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
-        y = float_model.predict(input_x)
-        y_hat = quantized_model.predict(input_x)
-        cs = cosine_similarity(y, y_hat)
-        self.unit_test.assertTrue(np.isclose(cs, 1, atol=1e-3), msg=f'fail cosine similarity check: {cs}')
+    def compare(self, quantized_model, gptq_model, input_x=None, quantization_info=None):
+        self.verify_threshold_training(quantized_model, gptq_model)
+
+
+class ActivationGradientPTQLearnRateZeroTest(ActivationGradientPTQBaseTest):
+
+    def get_gptq_config(self):
+        return model_compression_toolkit.gptq.common.gptq_config.GradientPTQConfig(5,
+                                                                                   optimizer=tf.keras.optimizers.SGD(
+                                                                                       learning_rate=0.0),
+                                                                                   optimizer_rest=tf.keras.optimizers.SGD(
+                                                                                       learning_rate=0.0),
+                                                                                   train_bias=True,
+                                                                                   sam_optimization=False,
+                                                                                   loss=multiple_tensors_mse_loss,
+                                                                                   activation_parameters_learning=True,
+                                                                                   optimizer_activation_params=tf.keras.optimizers.SGD(
+                                                                                       learning_rate=0.0))
+
+    def compare(self, quantized_model, gptq_model, input_x=None, quantization_info=None):
+        thresholds_diff = []
+        # Skipping input layer activation since its threshold is not being trained
+        for q_layer, g_layer in zip(quantized_model.layers[2:], gptq_model.layers[2:]):
+            if isinstance(q_layer, TFOpLambda) and len(list(q_layer.inbound_nodes[0].call_kwargs.keys())) > 0:
+                q_max_level = q_layer.inbound_nodes[0].call_kwargs.get('max')
+                q_nbits = q_layer.inbound_nodes[0].call_kwargs.get('num_bits')
+                q_threshold = q_max_level / (2 ** q_nbits - 1) + q_max_level
+
+                g_max_level = g_layer.inbound_nodes[0].call_kwargs.get('max')
+                g_nbits = g_layer.inbound_nodes[0].call_kwargs.get('num_bits')
+                g_threshold = g_max_level / (2 ** g_nbits - 1) + g_max_level
+
+                thresholds_diff.append(not np.isclose(q_threshold - g_threshold, 0, atol=1e-5))
+
+        # Check that activation thresholds didn't change
+        self.unit_test.assertFalse(np.any(thresholds_diff),
+                                   "None of the activation thresholds shouldn't have change from the quantized_model "
+                                   "thresholds, since training lr is 0")
