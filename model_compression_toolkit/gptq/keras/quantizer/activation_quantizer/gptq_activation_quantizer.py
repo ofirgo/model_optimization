@@ -45,7 +45,7 @@ def symmetric_constrained_quantizer(input_tensor: tf.Tensor,
     tensor_q = qutils.ste_round(input_tensor / delta)
     min_int = -int(signed) * (2 ** (num_bits - int(signed)))
     max_int = (2 ** (num_bits - int(signed))) - 1
-    return delta * qutils.ste_clip(tensor_q, max_val=max_int, min_val=min_int)
+    return delta * qutils.clip(tensor_q, max_val=max_int, min_val=min_int)
 
 
 class GPTQActivationQuantizer(BaseTrainableQuantizer):

@@ -495,11 +495,8 @@ class FeatureNetworkTest(unittest.TestCase):
 
     def test_activation_gptq(self, experimental_facade=False, experimental_exporter=False):
         ActivationGradientPTQTest(self).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
-        ActivationGradientPTQTest(self, weights_quantization=False).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
         ActivationGradientPTQWeightedLossTest(self).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
-        ActivationGradientPTQWeightedLossTest(self, weights_quantization=False).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
         ActivationGradientPTQLearnRateZeroTest(self).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
-        ActivationGradientPTQLearnRateZeroTest(self, weights_quantization=False).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
 
     # TODO: reuven - new experimental facade needs to be tested regardless the exporter.
     # def test_gptq_new_exporter(self):

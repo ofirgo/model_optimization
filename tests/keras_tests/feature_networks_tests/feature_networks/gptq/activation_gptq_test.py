@@ -54,19 +54,16 @@ def build_model(in_input_shape: List[int]) -> keras.Model:
 
 
 class ActivationGradientPTQBaseTest(BaseKerasFeatureNetworkTest):
-    def __init__(self, unit_test, is_gumbel=True, activation_quantization_method=QuantizationMethod.SYMMETRIC,
-                 weights_quantization=True):
+    def __init__(self, unit_test, is_gumbel=True, activation_quantization_method=QuantizationMethod.SYMMETRIC):
         super().__init__(unit_test,
                          input_shape=(1, 16, 16, 3))
         self.is_gumbel = is_gumbel
         self.activation_quantization_method = activation_quantization_method
-        self.weights_quantization = weights_quantization
 
     def get_tpc(self):
         tp_model = generate_test_tp_model({'weights_n_bits': 8,
                                            'activation_n_bits': 8,
-                                           'activation_quantization_method': self.activation_quantization_method,
-                                           'enable_weights_quantization': self.weights_quantization})
+                                           'activation_quantization_method': self.activation_quantization_method})
         return generate_keras_tpc(name="activation_gptq_test", tp_model=tp_model)
 
     def get_quantization_config(self):
