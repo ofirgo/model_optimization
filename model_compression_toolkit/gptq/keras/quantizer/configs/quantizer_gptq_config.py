@@ -76,7 +76,8 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
         else:
             self.weight_quantizer = None
 
-        if final_activation_quantization_cfg.enable_activation_quantization:
+        if final_activation_quantization_cfg.enable_activation_quantization and \
+                self.gptq_config.activation_parameters_learning:
             self._build_activation_quantizer()
         else:
             self.activation_quantizer = None
@@ -229,7 +230,8 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
 
         """
         return \
-            [] if not self.final_activation_quantization_cfg.enable_activation_quantization \
+            [] if not (self.final_activation_quantization_cfg.enable_activation_quantization and
+                       self.gptq_config.activation_parameters_learning) \
             else [self.activation_quantizer]
 
     @classmethod
@@ -281,7 +283,7 @@ class GradientPTQQuantizeConfig(BaseQuantizeConfig):
 
             weights_quant_config = {gptq_constants.WEIGHTS_QUANTIZATION_PARAMS: self.weight_quantizer.get_quant_config(layer)}
 
-        if self.final_activation_quantization_cfg.enable_activation_quantization:
+        if self.final_activation_quantization_cfg.enable_activation_quantization and self.gptq_config.activation_parameters_learning:
             activation_quant_config = {gptq_constants.ACTIVATION_QUANTIZATION_PARAMS: self.activation_quantizer.get_quant_config(layer)}
 
         return weights, weights_quant_config, activation_quant_config

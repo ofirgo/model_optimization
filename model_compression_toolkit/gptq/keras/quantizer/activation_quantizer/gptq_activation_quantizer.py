@@ -42,8 +42,7 @@ def symmetric_constrained_quantizer(input_tensor: tf.Tensor,
     """
 
     delta = qutils.calculate_delta(tf.convert_to_tensor(activation_threshold), num_bits, signed)
-    input_tensor_int = tf.stop_gradient(tf.round(input_tensor / delta))
-    tensor_q = qutils.ste_round(input_tensor_int / delta)
+    tensor_q = qutils.ste_round(input_tensor / delta)
     min_int = -int(signed) * (2 ** (num_bits - int(signed)))
     max_int = (2 ** (num_bits - int(signed))) - 1
     return delta * qutils.ste_clip(tensor_q, max_val=max_int, min_val=min_int)
@@ -121,7 +120,7 @@ class GPTQActivationQuantizer(BaseTrainableQuantizer):
         activation_threshold = weights[gptq_constants.ACTIVATION_THRESHOLD]
 
         return symmetric_constrained_quantizer(inputs,
-                                               tf.convert_to_tensor(activation_threshold),
+                                               activation_threshold,
                                                self.num_bits,
                                                self.signed)
 

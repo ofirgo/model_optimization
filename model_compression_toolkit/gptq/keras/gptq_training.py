@@ -80,7 +80,8 @@ class KerasGPTQTrainer(GPTQTrainer):
             get_trainable_parameters(self.fxp_model,
                                      fw_info,
                                      add_bias=True,
-                                     is_gumbel=gptq_config.is_gumbel)
+                                     is_gumbel=gptq_config.is_gumbel,
+                                     is_activation_parameters_learning=gptq_config.activation_parameters_learning)
 
         self.flp_weights_list, self.fxp_weights_list = get_weights_for_loss(self.fxp_model)
 
@@ -227,6 +228,7 @@ class KerasGPTQTrainer(GPTQTrainer):
             if self.gptq_config.log_function is not None:
                 self.gptq_config.log_function(loss_value_step, grads[0], in_optimizer_with_param[0][-1],
                                               self.compare_points)
+            print(loss_value_step)
             self.loss_list.append(loss_value_step.numpy())
             common.Logger.debug(f'last loss value: {self.loss_list[-1]}')
 

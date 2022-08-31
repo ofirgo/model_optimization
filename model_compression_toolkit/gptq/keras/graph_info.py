@@ -27,16 +27,18 @@ from tensorflow.keras.models import Model
 def get_trainable_parameters(fxp_model: Model,
                              fw_info: FrameworkInfo,
                              add_bias: bool = False,
-                             is_gumbel: bool = False) -> (
+                             is_gumbel: bool = False,
+                             is_activation_parameters_learning: bool = False) -> (
         List[tf.Variable], List[tf.Variable], List[tf.Variable], List[tf.Variable], List[tf.Variable]):
     """
-    Get trainable parameters from all layers in a model
+    Get trainable parameters from all layers in a model.
 
     Args:
         fxp_model: Model to get its trainable parameters.
         fw_info: Framework information needed for keras kernel ops list.
         add_bias: Whether to include biases of the model (if there are) or not.
-        is_gumbel: Whether the fxp model is quantized using Gumbel Rounding
+        is_gumbel: Whether the fxp model is quantized using Gumbel Rounding.
+        is_activation_parameters_learning: Whether to include activation quantization parameters in training.
 
     Returns:
         A list of trainable variables in a model. Each item is a list of a layers weights.
@@ -66,8 +68,9 @@ def get_trainable_parameters(fxp_model: Model,
                 trainable_weights.append(layer_trainable_weights)
                 trainable_threshold.extend(layer_trainable_threshold)
             if layer.quantize_config.final_activation_quantization_cfg.enable_activation_quantization:
-                layer_trainable_activation_threshold = layer.quantize_config.get_activation_quantization_variable()
-                trainable_activation_threshold.extend(layer_trainable_activation_threshold)
+                if is_activation_parameters_learning:
+                    layer_trainable_activation_threshold = layer.quantize_config.get_activation_quantization_variable()
+                    trainable_activation_threshold.extend(layer_trainable_activation_threshold)
 
     return trainable_weights, bias_weights, trainable_threshold, temperature_weights, trainable_activation_threshold
 
