@@ -228,7 +228,6 @@ class KerasGPTQTrainer(GPTQTrainer):
             if self.gptq_config.log_function is not None:
                 self.gptq_config.log_function(loss_value_step, grads[0], in_optimizer_with_param[0][-1],
                                               self.compare_points)
-            print(loss_value_step)
             self.loss_list.append(loss_value_step.numpy())
             common.Logger.debug(f'last loss value: {self.loss_list[-1]}')
 

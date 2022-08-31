@@ -42,13 +42,15 @@ def quantization_config_builder_gptq(n: common.BaseNode,
         quantization configuration).
     """
 
-    if n.is_weights_quantization_enabled() or n.is_activation_quantization_enabled():
+    if n.is_weights_quantization_enabled() or \
+            (n.is_activation_quantization_enabled() and gptq_config.activation_parameters_learning):
         qc = GradientPTQQuantizeConfig(fw_info.get_kernel_op_attributes(n.type),
                                        n.final_weights_quantization_cfg,
                                        n.final_activation_quantization_cfg,
                                        gptq_config)
 
-    elif not n.is_weights_quantization_enabled() and not n.is_activation_quantization_enabled():
+    elif not n.is_weights_quantization_enabled() and \
+            not (n.is_activation_quantization_enabled() and gptq_config.activation_parameters_learning):
         qc = NoOpQuantizeConfig()
 
     else:

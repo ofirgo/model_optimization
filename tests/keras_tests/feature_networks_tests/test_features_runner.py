@@ -23,6 +23,8 @@ from tests.keras_tests.feature_networks_tests.feature_networks.bias_correction_d
     BiasCorrectionDepthwiseTest
 from tests.keras_tests.feature_networks_tests.feature_networks.experimental_exporter_test import \
     ExperimentalExporterTest
+from tests.keras_tests.feature_networks_tests.feature_networks.gptq.activation_gptq_test import \
+    ActivationGradientPTQTest, ActivationGradientPTQWeightedLossTest
 from tests.keras_tests.feature_networks_tests.feature_networks.mixed_precision_bops_test import \
     MixedPrecisionBopsBasicTest, MixedPrecisionBopsAllWeightsLayersTest, MixedPrecisionWeightsOnlyBopsTest, \
     MixedPrecisionActivationOnlyBopsTest, MixedPrecisionBopsAndWeightsKPITest, MixedPrecisionBopsAndActivationKPITest, \
@@ -490,6 +492,12 @@ class FeatureNetworkTest(unittest.TestCase):
         GradientPTQWeightedLossTest(self).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
         GradientPTQWeightsUpdateTest(self, is_gumbel=True, sam_optimization=True).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
         GradientPTQLearnRateZeroTest(self, is_gumbel=True).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
+
+    def test_activation_gptq(self, experimental_facade=False, experimental_exporter=False):
+        # ActivationGradientPTQTest(self).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
+        # ActivationGradientPTQTest(self, weights_quantization=False).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
+        ActivationGradientPTQWeightedLossTest(self).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
+        ActivationGradientPTQWeightedLossTest(self, weights_quantization=False).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
 
     # TODO: reuven - new experimental facade needs to be tested regardless the exporter.
     # def test_gptq_new_exporter(self):

@@ -12,16 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import copy
 import unittest
 from typing import List
 
 import numpy as np
-from model_compression_toolkit import get_keras_gptq_config, keras_post_training_quantization, DEFAULTCONFIG, \
+from model_compression_toolkit import get_keras_gptq_config, keras_post_training_quantization, \
     QuantizationConfig, QuantizationErrorMethod, GradientPTQConfig, RoundingType
 import tensorflow as tf
+
+from model_compression_toolkit.core.common.target_platform import QuantizationMethod
+from model_compression_toolkit.core.tpc_models.default_tpc.v1.tpc_keras import generate_keras_tpc
 from model_compression_toolkit.gptq.keras.gptq_loss import multiple_tensors_mse_loss
 import model_compression_toolkit as mct
+from tests.common_tests.helpers.generate_test_tp_model import generate_test_tp_model
 
 layers = tf.keras.layers
 SHAPE = [1, 16, 16, 3]
@@ -82,6 +85,25 @@ class TestGetGPTQConfig(unittest.TestCase):
                                              quant_config=qc,
                                              gptq_config=gptq_config)
 
+        activation_gptq_configurations = [GradientPTQConfig(1, optimizer=tf.keras.optimizers.RMSprop(),
+                                                            optimizer_rest=tf.keras.optimizers.RMSprop(),
+                                                            train_bias=True,
+                                                            loss=multiple_tensors_mse_loss,
+                                                            rounding_type=RoundingType.GumbelRounding,
+                                                            quantizer_config=gc,
+                                                            activation_parameters_learning=True,
+                                                            optimizer_activation_params=tf.keras.optimizers.RMSprop())]
+        tp_model = generate_test_tp_model({
+            'activation_quantization_method': QuantizationMethod.SYMMETRIC})
+        symmetric_activation_tpc = generate_keras_tpc(name="act_gptq_config", tp_model=tp_model)
+
+        for gptq_config in activation_gptq_configurations:
+            keras_post_training_quantization(in_model=build_model(SHAPE[1:]),
+                                             representative_data_gen=random_datagen,
+                                             n_iter=1,
+                                             quant_config=qc,
+                                             gptq_config=gptq_config,
+                                             target_platform_capabilities=symmetric_activation_tpc)
 
 if __name__ == '__main__':
     unittest.main()

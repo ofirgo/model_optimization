@@ -36,7 +36,7 @@ def get_compare_points(input_graph: Graph) -> Tuple[List[BaseNode], List[str], L
     compare_points_std = []
     compare_points_name = []
     for n in input_graph.get_topo_sorted_nodes():
-        if len(n.weights) > 0:
+        if n.has_weights_to_quantize(input_graph.fw_info):
             compare_points.append(n)
             compare_points_name.append(n.name)
             compare_points_std.append(n.prior_info.std_output)
