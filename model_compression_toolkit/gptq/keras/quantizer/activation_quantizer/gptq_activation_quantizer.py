@@ -41,7 +41,7 @@ def symmetric_constrained_quantizer(input_tensor: tf.Tensor,
         A quantized tensor.
     """
 
-    delta = qutils.calculate_delta(tf.convert_to_tensor(activation_threshold), num_bits, signed)
+    delta = qutils.calculate_delta(activation_threshold, num_bits, signed)
     tensor_q = qutils.ste_round(input_tensor / delta)
     min_int = -int(signed) * (2 ** (num_bits - int(signed)))
     max_int = (2 ** (num_bits - int(signed))) - 1
