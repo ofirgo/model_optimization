@@ -14,7 +14,7 @@
 # ==============================================================================
 
 import unittest
-
+from tests.common_tests.timer_testcase import TimerTestCase
 from model_compression_toolkit import target_platform
 from model_compression_toolkit.core.common.network_editors.node_filters import NodeNameFilter
 from model_compression_toolkit.core.common.network_editors.actions import EditRule, ChangeCandidatesWeightsQuantConfigAttr
