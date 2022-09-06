@@ -38,8 +38,7 @@ class MixedPercisionBaseTest(BaseKerasFeatureNetworkTest):
         super().__init__(unit_test)
 
     def get_mixed_precision_v2_config(self):
-        return MixedPrecisionQuantizationConfigV2(num_of_images=1,
-                                                  use_grad_based_weights=False)
+        return MixedPrecisionQuantizationConfigV2(num_of_images=1)
 
     def get_quantization_config(self):
         qc = mct.QuantizationConfig(mct.QuantizationErrorMethod.MSE,
