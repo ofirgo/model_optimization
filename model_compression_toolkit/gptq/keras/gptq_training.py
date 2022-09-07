@@ -15,6 +15,7 @@
 from typing import Callable, List, Tuple
 
 import tensorflow as tf
+from keras.layers import ReLU, Activation
 from tensorflow_model_optimization.python.core.quantization.keras.quantize_wrapper import QuantizeWrapper
 from tqdm import tqdm
 
@@ -71,7 +72,9 @@ class KerasGPTQTrainer(GPTQTrainer):
                          graph_quant,
                          gptq_config,
                          fw_impl,
-                         fw_info)
+                         fw_info,
+                         # lambda n: n.type is Activation and n.framework_attr['activation'] == 'relu')
+                         lambda n: n.type is ReLU or (n.type is Activation and n.framework_attr['activation'] == 'relu'))
 
         self.loss_list = []
         self.input_scale = 1
@@ -85,12 +88,12 @@ class KerasGPTQTrainer(GPTQTrainer):
 
         self.flp_weights_list, self.fxp_weights_list = get_weights_for_loss(self.fxp_model)
 
-        if not len(trainable_activation_threshold) > 0 and not (len(self.compare_points) ==
-                                                                len(trainable_weights) ==
-                                                                len(self.flp_weights_list) == len(self.fxp_weights_list)):
-            raise Exception(
-                "GPTQ: Mismatch between number of compare points, number of layers with trainable weights " +
-                "and number of float and quantized weights for loss")
+        # if not len(trainable_activation_threshold) > 0 and not (len(self.compare_points) ==
+        #                                                         len(trainable_weights) ==
+        #                                                         len(self.flp_weights_list) == len(self.fxp_weights_list)):
+        #     raise Exception(
+        #         "GPTQ: Mismatch between number of compare points, number of layers with trainable weights " +
+        #         "and number of float and quantized weights for loss")
 
         flattened_trainable_weights = [w for layer_weights in trainable_weights for w in layer_weights]
         flattened_bias_weights = [w for layer_weights in bias_weights for w in layer_weights]
@@ -100,6 +103,17 @@ class KerasGPTQTrainer(GPTQTrainer):
                                                                   trainable_quantization_parameters,
                                                                   temperature_weights,
                                                                   trainable_activation_threshold)
+        # self.activation_optimizer_with_param = []
+        # if self.gptq_config.activation_parameters_learning:
+        #     # if self.gptq_config.optimizer_activation_params is not None:
+        #     self.activation_optimizer_with_param.append((self.gptq_config.optimizer_activation_params,
+        #                                  [*trainable_activation_threshold]))
+        #     # else:
+        #         # w2train_res.extend(trainable_activation_threshold)
+        #
+        # # if len(w2train_res) > 0:
+        # #     optimizer_with_param.append((self.gptq_config.optimizer_rest, w2train_res))
+
         self.has_params_to_train = np.sum([len(optimizer_params_tuple[1]) for
                                            optimizer_params_tuple in self.optimizer_with_param]) > 0
 
@@ -125,7 +139,8 @@ class KerasGPTQTrainer(GPTQTrainer):
 
     def compute_gradients(self, in_y_float: List[tf.Tensor], input_data: List[np.ndarray],
                           in_optimizer_with_param: List,
-                          training=True) -> Tuple[tf.Tensor, List[tf.Tensor]]:
+                          training=True,
+                          activation_training=False) -> Tuple[tf.Tensor, List[tf.Tensor]]:
         """
         Get outputs from both teacher and student networks. Compute the observed error,
         and use it to compute the gradients and applying them to the student weights.
@@ -152,6 +167,7 @@ class KerasGPTQTrainer(GPTQTrainer):
                                                self.compare_points_std,
                                                self.weights_for_average_loss)
 
+            # if not activation_training and self.gptq_config.is_gumbel and self.gptq_config.quantizer_config.temperature_learning:
             if self.gptq_config.is_gumbel and self.gptq_config.quantizer_config.temperature_learning:
                 gumbel_prob = get_gumbel_probability(self.fxp_model)
                 if len(gumbel_prob) > 0:
@@ -197,12 +213,23 @@ class KerasGPTQTrainer(GPTQTrainer):
                                      self.gptq_config.n_iter,
                                      True)
 
+            # self.micro_training_loop(representative_data_gen,
+            #                          compute_gradients,
+            #                          self.activation_optimizer_with_param,
+            #                          self.gptq_config.n_iter,
+            #                          False,
+            #                          activation_training=True,
+            #                          loss_name='activation_loss')
+
+
     def micro_training_loop(self,
                             data_function: Callable,
                             in_compute_gradients: Callable,
                             in_optimizer_with_param: List[Tuple[tf.keras.optimizers.Optimizer, List[tf.Tensor]]],
                             n_iteration: int,
-                            is_training: bool):
+                            is_training: bool,
+                            activation_training: bool = False,
+                            loss_name: str = 'loss'):
         """
         This function run a micro training loop on given set of parameters.
         Args:
@@ -220,6 +247,7 @@ class KerasGPTQTrainer(GPTQTrainer):
             input_data = [d * self.input_scale for d in data]
             y_float = self.float_model(input_data)  # running float model
             loss_value_step, grads = in_compute_gradients(y_float, input_data, in_optimizer_with_param,
+                                                          # training=is_training, activation_training=activation_training)
                                                           training=is_training)
             # Run one step of gradient descent by updating
             # the value of the variables to minimize the loss.
@@ -227,7 +255,7 @@ class KerasGPTQTrainer(GPTQTrainer):
                 o.apply_gradients(zip(grads[i], p))
             if self.gptq_config.log_function is not None:
                 self.gptq_config.log_function(loss_value_step, grads[0], in_optimizer_with_param[0][-1],
-                                              self.compare_points)
+                                              self.compare_points, loss_name)
             self.loss_list.append(loss_value_step.numpy())
             common.Logger.debug(f'last loss value: {self.loss_list[-1]}')
 

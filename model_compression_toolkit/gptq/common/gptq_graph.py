@@ -17,7 +17,7 @@ from model_compression_toolkit.core.common.graph.base_graph import Graph
 from model_compression_toolkit.core.common.graph.base_node import BaseNode
 
 
-def get_compare_points(input_graph: Graph) -> Tuple[List[BaseNode], List[str], List, List]:
+def get_compare_points(input_graph: Graph, cond) -> Tuple[List[BaseNode], List[str], List, List]:
     """
     Create a list of nodes with weights in a graph and a corresponding list
     of their names for tensors comparison purposes. Also outputs 2 list of activations
@@ -36,7 +36,8 @@ def get_compare_points(input_graph: Graph) -> Tuple[List[BaseNode], List[str], L
     compare_points_std = []
     compare_points_name = []
     for n in input_graph.get_topo_sorted_nodes():
-        if n.has_weights_to_quantize(input_graph.fw_info):
+        # if n.has_weights_to_quantize(input_graph.fw_info) or cond(n):
+        if cond(n):
             compare_points.append(n)
             compare_points_name.append(n.name)
             compare_points_std.append(n.prior_info.std_output)
