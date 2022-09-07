@@ -15,6 +15,7 @@
 from typing import Callable, List, Tuple
 
 import tensorflow as tf
+from keras.layers import ReLU, Activation
 from tensorflow_model_optimization.python.core.quantization.keras.quantize_wrapper import QuantizeWrapper
 from tqdm import tqdm
 
@@ -71,7 +72,8 @@ class KerasGPTQTrainer(GPTQTrainer):
                          graph_quant,
                          gptq_config,
                          fw_impl,
-                         fw_info)
+                         fw_info,
+                         lambda n: n.type is ReLU or (n.type is Activation and n.framework_attr['activation'] == 'relu'))
 
         self.loss_list = []
         self.input_scale = 1
@@ -84,11 +86,11 @@ class KerasGPTQTrainer(GPTQTrainer):
 
         self.flp_weights_list, self.fxp_weights_list = get_weights_for_loss(self.fxp_model)
 
-        if not (len(self.compare_points) == len(trainable_weights) == len(self.flp_weights_list) == len(
-                self.fxp_weights_list)):
-            raise Exception(
-                "GPTQ: Mismatch between number of compare points, number of layers with trainable weights " +
-                "and number of float and quantized weights for loss")
+        # if not (len(self.compare_points) == len(trainable_weights) == len(self.flp_weights_list) == len(
+        #         self.fxp_weights_list)):
+        #     raise Exception(
+        #         "GPTQ: Mismatch between number of compare points, number of layers with trainable weights " +
+        #         "and number of float and quantized weights for loss")
 
         flattened_trainable_weights = [w for layer_weights in trainable_weights for w in layer_weights]
         flattened_bias_weights = [w for layer_weights in bias_weights for w in layer_weights]

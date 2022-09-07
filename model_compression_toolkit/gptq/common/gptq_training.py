@@ -34,7 +34,8 @@ class GPTQTrainer(ABC):
                  graph_quant: Graph,
                  gptq_config: GradientPTQConfig,
                  fw_impl: FrameworkImplementation,
-                 fw_info: FrameworkInfo):
+                 fw_info: FrameworkInfo,
+                 cond: Any):
         """
         Build two models from a graph: A teacher network (float model) and a student network (quantized model).
         Use the dataset generator to pass images through the teacher and student networks to get intermediate
@@ -57,7 +58,7 @@ class GPTQTrainer(ABC):
         # ----------------------------------------------
         # Build two models and create compare nodes
         # ----------------------------------------------
-        self.compare_points, _, self.compare_points_mean, self.compare_points_std = get_compare_points(self.graph_float)
+        self.compare_points, _, self.compare_points_mean, self.compare_points_std = get_compare_points(self.graph_float, cond)
 
         self.float_model, self.float_user_info = fw_impl.model_builder(self.graph_float,
                                                                        mode=ModelBuilderMode.FLOAT,
