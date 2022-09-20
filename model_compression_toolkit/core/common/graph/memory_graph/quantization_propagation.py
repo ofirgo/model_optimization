@@ -20,8 +20,26 @@ from model_compression_toolkit.core.common.quantization.candidate_node_quantizat
     CandidateNodeQuantizationConfig
 
 
+# TODO: Not completed - the propagation should return a mapping between a node and a specific configuration deduced
+#   from forward/back propagation, according to some bit-width configuration, and not just pass all the candidates.
+#   Need that forward/backward prop will return a mapping between a node (that doesn't have enabled activation candidate)
+#   to a node and a config index or to a specific CandidateNodeQuantizationConfig which will be used later in memory_grap.
+#   The quantization prop method should return the combined mapping and not a copied graph with replaced configs.
+
 def forward_propagation(graph: Graph,
                         forward_propagatable: Callable) -> Dict[BaseNode, List[CandidateNodeQuantizationConfig]]:
+    """
+    Performs an activation quantization config forward propagation. For each node that doesn't have enabled activation
+    quantization config candidate, we check if its output's quantization config can be deduced based on its predecessor.
+
+    Args:
+        graph: A graph to preform the forward pass on.
+        forward_propagatable: A boolean function that indicates whether a node can have propagated quantization config.
+
+    Returns:
+
+    """
+
     node_to_candidates = {}
     topo_sorted_nodes = graph.get_topo_sorted_nodes()
     fused_nodes_flat = list([n for fusing in graph.fused_nodes for n in fusing])
@@ -46,7 +64,8 @@ def forward_propagation(graph: Graph,
     return node_to_candidates
 
 
-def backward_propagation(graph: Graph, forward_propagatable: Callable) -> Dict[BaseNode, List[CandidateNodeQuantizationConfig]]:
+def backward_propagation(graph: Graph,
+                         forward_propagatable: Callable) -> Dict[BaseNode, List[CandidateNodeQuantizationConfig]]:
     node_to_candidates = {}
     topo_sorted_nodes = graph.get_topo_sorted_nodes()
     for i, n in enumerate(topo_sorted_nodes[1:]):
@@ -72,7 +91,7 @@ def backward_propagation(graph: Graph, forward_propagatable: Callable) -> Dict[B
     return node_to_candidates
 
 
-def propogate_quantization(graph: Graph, forward_propagatable: Callable) -> Graph:
+def propagate_quantization(graph: Graph, forward_propagatable: Callable) -> Graph:
     forward_propogated = forward_propagation(graph, forward_propagatable)
     backward_propogated = backward_propagation(graph, forward_propagatable)
 
@@ -83,5 +102,12 @@ def propogate_quantization(graph: Graph, forward_propagatable: Callable) -> Grap
     for n in dup_nodes:
         backward_propogated.pop(n)
 
+    combined_propogated = forward_propogated | backward_propogated
     prop_graph = copy.deepcopy(graph)
-    # TODO: implement the actual propogation on the copied graph
+    for n, candidates in combined_propogated.items():
+        prop_node = prop_graph.find_node_by_name(n.name)
+        assert prop_node is not None and len(prop_node) == 1
+        prop_node = prop_node[0]
+        prop_node.candidates_quantization_cfg = candidates
+
+    return prop_graph
