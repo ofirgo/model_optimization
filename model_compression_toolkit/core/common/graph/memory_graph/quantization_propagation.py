@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import copy
 from typing import Dict, List, Callable
 
 from model_compression_toolkit.core.common import Graph, BaseNode, Logger
@@ -69,3 +70,18 @@ def backward_propagation(graph: Graph, forward_propagatable: Callable) -> Dict[B
                 Logger.critical("Found a node without activation quantization candidates that is not matching "
                                 "for neither forward nor backward quantization propagation.")
     return node_to_candidates
+
+
+def propogate_quantization(graph: Graph, forward_propagatable: Callable) -> Graph:
+    forward_propogated = forward_propagation(graph, forward_propagatable)
+    backward_propogated = backward_propagation(graph, forward_propagatable)
+
+    dup_nodes = [n for n in list(forward_propogated.keys()) if n in list(backward_propogated.keys())]
+    if len(dup_nodes) > 0:
+        Logger.warning(f"Nodes {dup_nodes} appear both in quantization forward propagation and quantization backward propagation."
+                       "For those nodes, the propagated candidates configuration will be according to the forward propagation.")
+    for n in dup_nodes:
+        backward_propogated.pop(n)
+
+    prop_graph = copy.deepcopy(graph)
+    # TODO: implement the actual propogation on the copied graph
