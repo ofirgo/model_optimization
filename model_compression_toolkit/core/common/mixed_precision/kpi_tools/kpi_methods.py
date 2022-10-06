@@ -14,14 +14,13 @@
 # ==============================================================================
 from enum import Enum
 from functools import partial
-from typing import List, Dict
+from typing import List, Dict, Any
 
 import numpy as np
 
-from model_compression_toolkit import FrameworkInfo
 from model_compression_toolkit.core.common import Graph, BaseNode
 from model_compression_toolkit.core.common.constants import FLOAT_BITWIDTH
-from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
+from model_compression_toolkit.core.common.framework_info import FrameworkInfo
 from model_compression_toolkit.core.common.graph.edge import EDGE_SINK_INDEX
 from model_compression_toolkit.core.common.graph.memory_graph.cut import Cut
 from model_compression_toolkit.core.common.graph.virtual_activation_weights_node import VirtualActivationWeightsNode, \
@@ -210,7 +209,7 @@ def total_weights_activation_kpi(mp_cfg: List[int],
 def bops_kpi(mp_cfg: List[int],
              graph: Graph,
              fw_info: FrameworkInfo,
-             fw_impl: FrameworkImplementation,
+             fw_impl: Any,
              set_constraints: bool = True) -> np.ndarray:
     """
     Computes a KPIs vector with the respective bit-operations (BOPS) count for each configurable node,
@@ -251,7 +250,7 @@ def bops_kpi(mp_cfg: List[int],
 def _bops_kpi(mp_cfg: List[int],
               graph: Graph,
               fw_info: FrameworkInfo,
-              fw_impl: FrameworkImplementation) -> np.ndarray:
+              fw_impl: Any) -> np.ndarray:
     """
     Computes a KPIs vector with the respective bit-operations (BOPS) count for each configurable node,
     according to the given mixed-precision configuration of an original graph.

@@ -29,8 +29,8 @@ from model_compression_toolkit.core.common.graph.base_graph import Graph
 from model_compression_toolkit.core.common.mixed_precision.bit_width_setter import set_bit_widths
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import KPI, KPITarget
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_aggregation_methods import MpKpiAggregation
-from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_functions_mapping import kpi_functions_mapping
-from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_methods import MpKpiMetric
+from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_functions_mapping import get_kpi_functions_mapping
+from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_methods import MpKpiMetric, ActivationKPIMethod
 from model_compression_toolkit.core.common.mixed_precision.mixed_precision_search_facade import search_bit_width
 from model_compression_toolkit.core.common.model_collector import ModelCollector
 from model_compression_toolkit.core.common.network_editors.edit_network import edit_network_graph
@@ -134,7 +134,9 @@ def core_runner(in_model: Any,
 
     _set_final_kpi(graph=tg,
                    final_bit_widths_config=bit_widths_config,
-                   kpi_functions_dict=kpi_functions_mapping,
+                   kpi_functions_dict=get_kpi_functions_mapping(
+                       activation_kpi_method=ActivationKPIMethod.MAX_CUT if core_config.mixed_precision_config is None
+                       else core_config.mixed_precision_config.activation_kpi_method),
                    fw_info=fw_info,
                    fw_impl=fw_impl)
 

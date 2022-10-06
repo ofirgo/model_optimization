@@ -15,7 +15,8 @@
 import numpy as np
 from typing import Callable, Any, List
 
-from model_compression_toolkit import FrameworkInfo, MixedPrecisionQuantizationConfigV2
+from model_compression_toolkit.core.common.mixed_precision.mixed_precision_quantization_config import MixedPrecisionQuantizationConfigV2
+from model_compression_toolkit.core.common.framework_info import FrameworkInfo
 from model_compression_toolkit.core.common import Graph, BaseNode
 from model_compression_toolkit.core.common.model_builder_mode import ModelBuilderMode
 from model_compression_toolkit.core.common import Logger
