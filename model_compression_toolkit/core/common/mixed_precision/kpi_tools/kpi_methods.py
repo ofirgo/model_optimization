@@ -14,24 +14,30 @@
 # ==============================================================================
 from enum import Enum
 from functools import partial
-from typing import List
+from typing import List, Dict
 
 import numpy as np
 
 from model_compression_toolkit import FrameworkInfo
 from model_compression_toolkit.core.common import Graph, BaseNode
-from model_compression_toolkit.core.common.constants import BITS_TO_BYTES, FLOAT_BITWIDTH
+from model_compression_toolkit.core.common.constants import FLOAT_BITWIDTH
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 from model_compression_toolkit.core.common.graph.edge import EDGE_SINK_INDEX
+from model_compression_toolkit.core.common.graph.memory_graph.cut import Cut
 from model_compression_toolkit.core.common.graph.virtual_activation_weights_node import VirtualActivationWeightsNode, \
     VirtualSplitWeightsNode, VirtualSplitActivationNode
 from model_compression_toolkit.core.common.logger import Logger
+from model_compression_toolkit.core.common.memory_computation import compute_quantize_tensor_memory_bytes
+
+
+class ActivationKPIMethod(Enum):
+    MAX_TENSOR = 'max_tensor',
+    MAX_CUT = 'max_cut'
 
 
 def weights_size_kpi(mp_cfg: List[int],
                      graph: Graph,
-                     fw_info: FrameworkInfo,
-                     fw_impl: FrameworkImplementation) -> np.ndarray:
+                     fw_info: FrameworkInfo) -> np.ndarray:
     """
     Computes a KPIs vector with the respective weights' memory size for the given weight configurable node,
     according to the given mixed-precision configuration.
@@ -41,7 +47,6 @@ def weights_size_kpi(mp_cfg: List[int],
         mp_cfg: A mixed-precision configuration (list of candidates index for each configurable node)
         graph: Graph object.
         fw_info: FrameworkInfo object about the specific framework (e.g., attributes of different layers' weights to quantize).
-        fw_impl: FrameworkImplementation object with specific framework methods implementation (not used in this method).
 
     Returns: A vector of node's weights memory sizes.
     Note that the vector is not necessarily of the same length as the given config.
@@ -77,9 +82,7 @@ def weights_size_kpi(mp_cfg: List[int],
 
 
 def activation_output_size_kpi(mp_cfg: List[int],
-                               graph: Graph,
-                               fw_info: FrameworkInfo,
-                               fw_impl: FrameworkImplementation) -> np.ndarray:
+                               graph: Graph) -> np.ndarray:
     """
     Computes a KPIs vector with the respective output memory size for each activation configurable node,
     according to the given mixed-precision configuration.
@@ -88,9 +91,6 @@ def activation_output_size_kpi(mp_cfg: List[int],
     Args:
         mp_cfg: A mixed-precision configuration (list of candidates index for each configurable node)
         graph: Graph object.
-        fw_info: FrameworkInfo object about the specific framework (e.g., attributes of different layers' weights to quantize)
-            (not used in this method).
-        fw_impl: FrameworkImplementation object with specific framework methods implementation(not used in this method).
 
     Returns: A vector of node's activation memory sizes.
     Note that the vector is not necessarily of the same length as the given config.
@@ -125,10 +125,53 @@ def activation_output_size_kpi(mp_cfg: List[int],
     return np.array(activation_memory)
 
 
+def activation_max_cut_kpi(mp_cfg: List[int],
+                           graph: Graph,
+                           cuts: List[Cut]) -> np.ndarray:
+    """
+    TODO: update
+    Computes a KPIs vector with the respective output memory size for each activation configurable node,
+    according to the given mixed-precision configuration.
+    If an empty configuration is given, then computes KPI vector for non-configurable nodes.
+
+    Args:
+        mp_cfg: A mixed-precision configuration (list of candidates index for each configurable node)
+        graph: Graph object.
+        fw_info: FrameworkInfo object about the specific framework (e.g., attributes of different layers' weights to quantize)
+            (not used in this method).
+        fw_impl: FrameworkImplementation object with specific framework methods implementation(not used in this method).
+
+    Returns: A vector of node's activation memory sizes.
+    Note that the vector is not necessarily of the same length as the given config.
+
+    """
+
+    cuts_sizes = []
+    sorted_nodes_names = graph.get_configurable_sorted_nodes_names()
+
+    for c in cuts:
+        cut_memory_size = 0
+        for n_name in c.mem_elements:
+            node = graph.find_node_by_name(n_name)
+            assert len(node) == 1
+            node = node[0]
+
+            if node.has_activation_quantization_enabled_candidate():
+                candidate_idx = _get_node_cfg_idx(node, mp_cfg, sorted_nodes_names)
+                node_quant_config = node.candidates_quantization_cfg[candidate_idx]
+                activation_nbits = node_quant_config.activation_quantization_cfg.activation_n_bits
+
+                cut_memory_size += _compute_node_activation_memory(node, activation_nbits)
+
+        cuts_sizes.append(cut_memory_size)
+    return np.array(cuts_sizes)
+
+
 def total_weights_activation_kpi(mp_cfg: List[int],
                                  graph: Graph,
                                  fw_info: FrameworkInfo,
-                                 fw_impl: FrameworkImplementation) -> np.ndarray:
+                                 activation_kpi_method: ActivationKPIMethod = ActivationKPIMethod.MAX_CUT,
+                                 cuts: List[Cut] = None) -> np.ndarray:
     """
     Computes KPIs tensor with the respective weights size and output memory size for each activation configurable node,
     according to the given mixed-precision configuration.
@@ -145,49 +188,21 @@ def total_weights_activation_kpi(mp_cfg: List[int],
     Note that the vector is not necessarily of the same length as the given config.
 
     """
-    weights_activation_memory = []
-    mp_nodes = graph.get_configurable_sorted_nodes_names()
+    weights_memory = weights_size_kpi(mp_cfg, graph, fw_info)
 
-    if len(mp_cfg) == 0:
-        # Computing non-configurable nodes KPI
-        for n in graph.nodes:
-            if n.name not in mp_nodes:
-                if len(n.candidates_quantization_cfg) == 1:
-                    node_weights_memory_in_bytes = 0
-                    if n.has_weights_quantization_enabled_candidate():
-                        node_weights_nbits = n.candidates_quantization_cfg[0].weights_quantization_cfg.weights_n_bits
-                        node_weights_memory_in_bytes = _compute_node_weights_memory(n, node_weights_nbits, fw_info)
+    activation_memory = np.empty(0)
+    if activation_kpi_method == ActivationKPIMethod.MAX_CUT:
+        assert cuts is not None, "Max Cut activation KPI was chosen but no cuts where provided"
+        activation_memory = activation_max_cut_kpi(mp_cfg, graph, cuts)
 
-                    node_activation_memory_in_bytes = 0
-                    if n.has_activation_quantization_enabled_candidate():
-                        node_activation_nbits = n.candidates_quantization_cfg[0].activation_quantization_cfg.activation_n_bits
-                        node_activation_memory_in_bytes = _compute_node_activation_memory(n, node_activation_nbits)
-
-                    weights_activation_memory.append(
-                        np.array([node_weights_memory_in_bytes, node_activation_memory_in_bytes]))
-                else:
-                    Logger.warning(f"Non-configurable nodes should have a single quantization configuration candidate,"
-                                   f"but node {n.name} has {len(n.candidates_quantization_cfg)} candidates. "
-                                   f"The node's activation memory is not considered for the weights KPI computation.")
+    elif activation_kpi_method == ActivationKPIMethod.MAX_TENSOR:
+        activation_memory = activation_output_size_kpi(mp_cfg, graph)
     else:
-        # Go over all nodes that should be taken into consideration when computing the weights or
-        # activation KPI (all configurable nodes).
-        for node_idx, n in enumerate(graph.get_configurable_sorted_nodes()):
-            node_qc = n.candidates_quantization_cfg[mp_cfg[node_idx]]
-            node_weights_nbits = node_qc.weights_quantization_cfg.weights_n_bits
-            node_activation_nbits = node_qc.activation_quantization_cfg.activation_n_bits
+        Logger.critical(f"Unrecognized activation KPI method {activation_kpi_method} was provided for total KPI")
 
-            # Compute node's weights memory (if no weights to quantize then set to 0)
-            node_weights_memory_in_bytes = 0
-            if n.is_weights_quantization_enabled() and not n.is_all_weights_candidates_equal():
-                node_weights_memory_in_bytes = _compute_node_weights_memory(n, node_weights_nbits, fw_info)
-
-            # Compute node's activation memory (if node's activation are not being quantized then set to 0)
-            node_activation_memory_in_bytes = 0
-            if n.is_activation_quantization_enabled() and not n.is_all_activation_candidates_equal():
-                node_activation_memory_in_bytes = _compute_node_activation_memory(n, node_activation_nbits)
-
-            weights_activation_memory.append(np.array([node_weights_memory_in_bytes, node_activation_memory_in_bytes]))
+    weights_activation_memory = np.stack([np.concatenate([weights_memory, np.zeros_like(activation_memory)]),
+                                          np.concatenate([np.zeros_like(weights_memory), activation_memory])],
+                                         axis=1)
 
     return np.array(weights_activation_memory)
 
@@ -367,7 +382,7 @@ def _compute_node_weights_memory(n: BaseNode, node_nbits: int, fw_info: Framewor
         if attr is not None:
             node_num_weights_params += origin_node.get_weights_by_keys(attr).flatten().shape[0]
 
-    return node_num_weights_params * node_nbits / BITS_TO_BYTES
+    return compute_quantize_tensor_memory_bytes(node_num_weights_params, node_nbits)
 
 
 def _compute_node_activation_memory(n: BaseNode, node_nbits: int) -> float:
@@ -385,7 +400,7 @@ def _compute_node_activation_memory(n: BaseNode, node_nbits: int) -> float:
     origin_node = _get_origin_activation_node(n)
     node_output_size = origin_node.get_total_output_params()
 
-    return node_output_size * node_nbits / BITS_TO_BYTES
+    return compute_quantize_tensor_memory_bytes(node_output_size, node_nbits)
 
 
 class MpKpiMetric(Enum):
@@ -405,6 +420,7 @@ class MpKpiMetric(Enum):
 
     WEIGHTS_SIZE = partial(weights_size_kpi)
     ACTIVATION_OUTPUT_SIZE = partial(activation_output_size_kpi)
+    ACTIVATION_MAX_CUT = partial(activation_max_cut_kpi)
     TOTAL_WEIGHTS_ACTIVATION_SIZE = partial(total_weights_activation_kpi)
     BOPS_COUNT = partial(bops_kpi)
 

@@ -21,7 +21,8 @@ from typing import List, Callable, Dict
 from model_compression_toolkit import MixedPrecisionQuantizationConfigV2
 from model_compression_toolkit.core.common import Graph, Logger
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import KPI, KPITarget
-from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_functions_mapping import kpi_functions_mapping
+from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_functions_mapping import \
+    get_kpi_functions_mapping
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 from model_compression_toolkit.core.common.mixed_precision.mixed_precision_search_manager import MixedPrecisionSearchManager
 from model_compression_toolkit.core.common.mixed_precision.search_methods.linear_programming import \
@@ -93,7 +94,11 @@ def search_bit_width(graph_to_search_cfg: Graph,
         fw_info=fw_info)
 
     # Each pair of (KPI method, KPI aggregation) should match to a specific provided kpi target
-    kpi_functions = kpi_functions_mapping
+    kpi_functions = {}
+    kpi_functions_mapping = get_kpi_functions_mapping(mp_config.activation_kpi_method)
+    for target, kpi_value in target_kpi.get_kpi_dict().items():
+        if not np.isinf(kpi_value):
+            kpi_functions[target] = kpi_functions_mapping[target]
 
     # Compute non-configurable nodes KPIs for each KPI target
     non_conf_kpi_dict = _non_configurable_nodes_kpi(kpi_functions, target_kpi, graph, fw_info, fw_impl)
@@ -104,7 +109,8 @@ def search_bit_width(graph_to_search_cfg: Graph,
                                                  fw_impl,
                                                  se,
                                                  kpi_functions,
-                                                 original_graph=graph_to_search_cfg)
+                                                 original_graph=graph_to_search_cfg,
+                                                 activation_kpi_method=mp_config.activation_kpi_method)
 
     if search_method in search_methods:  # Get a specific search function
         search_method_fn = search_methods.get(search_method)

@@ -18,6 +18,8 @@ from typing import Dict, List
 import numpy as np
 
 from model_compression_toolkit.core.common import BaseNode
+from model_compression_toolkit.core.common.graph.memory_graph.compute_graph_max_cut import compute_graph_max_cut
+from model_compression_toolkit.core.common.graph.memory_graph.memory_graph import MemoryGraph
 from model_compression_toolkit.core.common.logger import Logger
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 from model_compression_toolkit.core.common.graph.base_graph import Graph
@@ -25,7 +27,7 @@ from model_compression_toolkit.core.common.graph.virtual_activation_weights_node
     VirtualSplitWeightsNode, VirtualSplitActivationNode
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import KPITarget
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_aggregation_methods import MpKpiAggregation
-from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_methods import MpKpiMetric
+from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_methods import MpKpiMetric, ActivationKPIMethod
 from model_compression_toolkit.core.common.framework_info import FrameworkInfo
 from model_compression_toolkit.core.common.mixed_precision.sensitivity_evaluation import SensitivityEvaluation
 
@@ -41,7 +43,8 @@ class MixedPrecisionSearchManager:
                  fw_impl: FrameworkImplementation,
                  sensitivity_evaluator: SensitivityEvaluation,
                  kpi_functions: Dict[KPITarget, Tuple[MpKpiMetric, MpKpiAggregation]],
-                 original_graph: Graph = None):
+                 original_graph: Graph = None,
+                 activation_kpi_method: ActivationKPIMethod = ActivationKPIMethod.MAX_CUT):
         """
 
         Args:
@@ -60,15 +63,24 @@ class MixedPrecisionSearchManager:
         self.original_graph = graph if original_graph is None else original_graph
         self.fw_info = fw_info
         self.fw_impl = fw_impl
+
         self.sensitivity_evaluator = sensitivity_evaluator
         self.layer_to_bitwidth_mapping = self.get_search_space()
         self.compute_metric_fn = self.get_sensitivity_metric()
 
-        self.compute_kpi_functions = kpi_functions
+        self.activation_kpi_method = activation_kpi_method
+        if activation_kpi_method == ActivationKPIMethod.MAX_CUT:
+            memory_graph = MemoryGraph(graph)
+            _, schedule, cuts = compute_graph_max_cut(memory_graph)
+            if schedule is None:
+                Logger.critical("No schedule was fond for Max Cut KPI computation.")
+            self.cuts = cuts
+        else:
+            self.cuts = None
 
+        self.compute_kpi_functions = kpi_functions
         self.min_kpi_config = self.graph.get_min_candidates_config()
         self.max_kpi_config = self.graph.get_max_candidates_config()
-
         self.min_kpi = self.compute_min_kpis()
 
         self.config_reconstruction_helper = ConfigReconstructionHelper(virtual_graph=self.graph,
@@ -194,7 +206,9 @@ class MixedPrecisionSearchManager:
         """
         return self.min_kpi[target]
 
-    def compute_node_kpi_for_candidate(self, conf_node_idx: int, candidate_idx: int, target: KPITarget) -> np.ndarray:
+    def compute_node_kpi_for_candidate(self, conf_node_idx: int,
+                                       candidate_idx: int,
+                                       target: KPITarget) -> np.ndarray:
         """
         Computes a KPIs vector after replacing the given node's configuration candidate in the minimal
         target configuration with the given candidate index.
@@ -207,14 +221,28 @@ class MixedPrecisionSearchManager:
         Returns: Node's KPIs vector.
 
         """
-        return self.compute_kpi_functions[target][0](
-            self.replace_config_in_index(
-                self.min_kpi_config,
-                conf_node_idx,
-                candidate_idx),
-            self.graph,
-            self.fw_info,
-            self.fw_impl)
+        kpi_method = self.compute_kpi_functions[target][0]
+        updated_config = self.replace_config_in_index(self.min_kpi_config,
+                                                      conf_node_idx,
+                                                      candidate_idx),
+        if target == KPITarget.WEIGHTS:
+            return kpi_method(updated_config, self.graph, self.fw_info)
+        elif target == KPITarget.ACTIVATION:
+            if self.activation_kpi_method == ActivationKPIMethod.MAX_TENSOR:
+                return kpi_method(updated_config, self.graph)
+            elif self.activation_kpi_method == ActivationKPIMethod.MAX_CUT:
+                assert self.cuts is not None, "Trying to come Max Cut KPI but cuts set is None"
+                return kpi_method(updated_config, self.graph, self.cuts)
+        elif target == KPITarget.TOTAL:
+            if self.activation_kpi_method == ActivationKPIMethod.MAX_TENSOR:
+                return kpi_method(updated_config, self.graph, self.fw_info, self.activation_kpi_method)
+            elif self.activation_kpi_method == ActivationKPIMethod.MAX_CUT:
+                assert self.cuts is not None, "Trying to come Max Cut KPI but cuts set is None"
+                return kpi_method(updated_config, self.graph, self.activation_kpi_method, self.cuts)
+        elif target == KPITarget.BOPS:
+            return kpi_method(updated_config, self.graph, self.fw_info, self.fw_impl)
+        else:
+            Logger.critical(f"Unrecognized KPI target {target} was provided for KPI computation")
 
     @staticmethod
     def replace_config_in_index(mp_cfg: List[int], idx: int, value: int) -> List[int]:

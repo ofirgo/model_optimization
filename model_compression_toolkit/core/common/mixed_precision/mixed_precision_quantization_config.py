@@ -18,6 +18,7 @@ from typing import List, Callable, Tuple
 
 from model_compression_toolkit.core.common import Logger
 from model_compression_toolkit.core.common.mixed_precision.distance_weighting import get_average_weights
+from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_methods import ActivationKPIMethod
 from model_compression_toolkit.core.common.quantization.quantization_config import QuantizationConfig, DEFAULTCONFIG
 from model_compression_toolkit.core.common.similarity_analyzer import compute_mse
 
@@ -32,7 +33,8 @@ class MixedPrecisionQuantizationConfigV2:
                  num_interest_points_factor: float = 1.0,
                  use_grad_based_weights: bool = True,
                  output_grad_factor: float = 0.1,
-                 norm_weights: bool = True):
+                 norm_weights: bool = True,
+                 activation_kpi_method: ActivationKPIMethod = ActivationKPIMethod.MAX_CUT):
         """
         Class with mixed precision parameters to quantize the input model.
         Unlike QuantizationConfig, number of bits for quantization is a list of possible bit widths to
@@ -68,6 +70,8 @@ class MixedPrecisionQuantizationConfigV2:
         if use_grad_based_weights is True:
             Logger.info(f"Using gradient-based weights for mixed-precision distance metric with tuning factor "
                         f"{output_grad_factor}")
+
+        self.activation_kpi_method = activation_kpi_method
 
 
 class MixedPrecisionQuantizationConfig(QuantizationConfig):

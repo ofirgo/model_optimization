@@ -14,13 +14,16 @@
 # ==============================================================================
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import KPITarget
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_aggregation_methods import MpKpiAggregation
-from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_methods import MpKpiMetric
+from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_methods import MpKpiMetric, ActivationKPIMethod
 
 
 # When adding a KPITarget that we want to consider in our mp search,
 # a matching pair of kpi_tools computation function and a kpi_tools
 # aggregation function should be added to this dictionary
-kpi_functions_mapping = {KPITarget.WEIGHTS: (MpKpiMetric.WEIGHTS_SIZE, MpKpiAggregation.SUM),
-                         KPITarget.ACTIVATION: (MpKpiMetric.ACTIVATION_OUTPUT_SIZE, MpKpiAggregation.MAX),
-                         KPITarget.TOTAL: (MpKpiMetric.TOTAL_WEIGHTS_ACTIVATION_SIZE, MpKpiAggregation.TOTAL),
-                         KPITarget.BOPS: (MpKpiMetric.BOPS_COUNT, MpKpiAggregation.SUM)}
+def get_kpi_functions_mapping(activation_kpi_method: ActivationKPIMethod = ActivationKPIMethod.MAX_CUT):
+    return {KPITarget.WEIGHTS: (MpKpiMetric.WEIGHTS_SIZE, MpKpiAggregation.SUM),
+            KPITarget.ACTIVATION: (MpKpiMetric.ACTIVATION_MAX_CUT if
+                                   activation_kpi_method == ActivationKPIMethod.MAX_CUT else
+                                   MpKpiMetric.ACTIVATION_OUTPUT_SIZE, MpKpiAggregation.MAX),
+            KPITarget.TOTAL: (MpKpiMetric.TOTAL_WEIGHTS_ACTIVATION_SIZE, MpKpiAggregation.TOTAL),
+            KPITarget.BOPS: (MpKpiMetric.BOPS_COUNT, MpKpiAggregation.SUM)}
