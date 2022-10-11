@@ -26,6 +26,8 @@ from model_compression_toolkit.core.common import Logger
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 from model_compression_toolkit.core.common.fusion.layer_fusing import fusion
 from model_compression_toolkit.core.common.graph.base_graph import Graph
+from model_compression_toolkit.core.common.graph.memory_graph.compute_graph_max_cut import compute_graph_max_cut
+from model_compression_toolkit.core.common.graph.memory_graph.memory_graph import MemoryGraph
 from model_compression_toolkit.core.common.mixed_precision.bit_width_setter import set_bit_widths
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import KPI, KPITarget
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_aggregation_methods import MpKpiAggregation
@@ -132,13 +134,14 @@ def core_runner(in_model: Any,
     # This is since some actions regard the final configuration and should be edited.
     edit_network_graph(tg, fw_info, core_config.debug_config.network_editor)
 
+    activation_kpi_method = ActivationKPIMethod.MAX_CUT if core_config.mixed_precision_config is None \
+        else core_config.mixed_precision_config.activation_kpi_method
     _set_final_kpi(graph=tg,
                    final_bit_widths_config=bit_widths_config,
-                   kpi_functions_dict=get_kpi_functions_mapping(
-                       activation_kpi_method=ActivationKPIMethod.MAX_CUT if core_config.mixed_precision_config is None
-                       else core_config.mixed_precision_config.activation_kpi_method),
+                   kpi_functions_dict=get_kpi_functions_mapping(activation_kpi_method),
                    fw_info=fw_info,
-                   fw_impl=fw_impl)
+                   fw_impl=fw_impl,
+                   activation_kpi_method=activation_kpi_method)
 
     if target_kpi is not None:
         # Retrieve lists of tuples (node, node's final weights/activation bitwidth)
@@ -409,7 +412,8 @@ def _set_final_kpi(graph: Graph,
                    final_bit_widths_config: List[int],
                    kpi_functions_dict: Dict[KPITarget, Tuple[MpKpiMetric, MpKpiAggregation]],
                    fw_info: FrameworkInfo,
-                   fw_impl: FrameworkImplementation):
+                   fw_impl: FrameworkImplementation,
+                   activation_kpi_method: ActivationKPIMethod):
     """
     Computing the KPIs of the model according to the final bit-width configuration,
     and setting it (inplace) in the graph's UserInfo field.
@@ -429,8 +433,37 @@ def _set_final_kpi(graph: Graph,
         if kpi_target == KPITarget.BOPS:
             final_kpis_dict[kpi_target] = kpi_aggr(kpi_method(final_bit_widths_config, graph, fw_info, fw_impl, False), False)[0]
         else:
-            non_conf_kpi = kpi_method([], graph, fw_info, fw_impl)
-            conf_kpi = kpi_method(final_bit_widths_config, graph, fw_info, fw_impl)
+            non_conf_kpi = None
+            conf_kpi = None
+            if kpi_target == KPITarget.WEIGHTS:
+                non_conf_kpi = kpi_method([], graph, fw_info)
+                conf_kpi = kpi_method(final_bit_widths_config, graph, fw_info)
+            elif kpi_target == KPITarget.ACTIVATION:
+                if activation_kpi_method == ActivationKPIMethod.MAX_TENSOR:
+                    non_conf_kpi = kpi_method([], graph, fw_info)
+                    conf_kpi = kpi_method(final_bit_widths_config, graph, fw_info)
+                elif activation_kpi_method == ActivationKPIMethod.MAX_CUT:
+                    # TODO: compute cuts
+                    # TODO: Do we need non_conf_kpi in this case or is it invluded in the max cut KPI? (and then it's like in BOPS)
+                    memory_graph = MemoryGraph(graph)
+                    _, _, cuts = compute_graph_max_cut(memory_graph)
+                    non_conf_kpi = kpi_method([], graph, cuts)
+                    conf_kpi = kpi_method(final_bit_widths_config, graph, cuts)
+            elif kpi_target == KPITarget.TOTAL:
+                if activation_kpi_method == ActivationKPIMethod.MAX_TENSOR:
+                    non_conf_kpi = kpi_method([], graph, fw_info, activation_kpi_method)
+                    conf_kpi = kpi_method(final_bit_widths_config, graph, fw_info, activation_kpi_method)
+                elif activation_kpi_method == ActivationKPIMethod.MAX_CUT:
+                    # TODO: compute cuts
+                    # TODO: Do we need non_conf_kpi in this case or is it invluded in the max cut KPI? (and then it's like in BOPS)
+                    memory_graph = MemoryGraph(graph)
+                    _, _, cuts = compute_graph_max_cut(memory_graph)
+                    non_conf_kpi = kpi_method([], graph, activation_kpi_method, cuts)
+                    conf_kpi = kpi_method(final_bit_widths_config, graph, activation_kpi_method, cuts)
+            else:
+                Logger.critical(f"Unrecognized KPI target {kpi_target} was provided for final KPI computation")
+
+            assert non_conf_kpi is not None and conf_kpi is not None
             if len(final_bit_widths_config) > 0 and len(non_conf_kpi) > 0:
                 final_kpis_dict[kpi_target] = kpi_aggr(np.concatenate([conf_kpi, non_conf_kpi]), False)[0]
             elif len(final_bit_widths_config) > 0 and len(non_conf_kpi) == 0:

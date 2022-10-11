@@ -57,6 +57,7 @@ class MemoryElements:
             total_size: The total number of parameters of the given tensors.
         """
         self.elements = elements
+        # TODO: consider only the size of nodes with activation quantization enabled (also modify Cut and MemoryGraph if needed)
         self.total_size = total_size
 
     def add_element(self, new_element: ActivationMemoryTensor):
