@@ -179,12 +179,14 @@ def total_weights_activation_kpi(mp_cfg: List[int],
 
             # Compute node's weights memory (if no weights to quantize then set to 0)
             node_weights_memory_in_bytes = 0
-            if n.is_weights_quantization_enabled() and not n.is_all_weights_candidates_equal():
+            # if n.is_weights_quantization_enabled() and not n.is_all_weights_candidates_equal():
+            if node_qc.weights_quantization_cfg.enable_weights_quantization:
                 node_weights_memory_in_bytes = _compute_node_weights_memory(n, node_weights_nbits, fw_info)
 
             # Compute node's activation memory (if node's activation are not being quantized then set to 0)
             node_activation_memory_in_bytes = 0
-            if n.is_activation_quantization_enabled() and not n.is_all_activation_candidates_equal():
+            # if n.is_activation_quantization_enabled() and not n.is_all_activation_candidates_equal():
+            if node_qc.activation_quantization_cfg.enable_activation_quantization:
                 node_activation_memory_in_bytes = _compute_node_activation_memory(n, node_activation_nbits)
 
             weights_activation_memory.append(np.array([node_weights_memory_in_bytes, node_activation_memory_in_bytes]))
