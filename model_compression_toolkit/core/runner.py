@@ -443,7 +443,6 @@ def _set_final_kpi(graph: Graph,
                     non_conf_kpi = kpi_method([], graph, fw_info)
                     conf_kpi = kpi_method(final_bit_widths_config, graph, fw_info)
                 elif activation_kpi_method == ActivationKPIMethod.MAX_CUT:
-                    # TODO: compute cuts
                     # TODO: Do we need non_conf_kpi in this case or is it invluded in the max cut KPI? (and then it's like in BOPS)
                     memory_graph = MemoryGraph(graph)
                     _, _, cuts = compute_graph_max_cut(memory_graph)
@@ -454,7 +453,6 @@ def _set_final_kpi(graph: Graph,
                     non_conf_kpi = kpi_method([], graph, fw_info, activation_kpi_method)
                     conf_kpi = kpi_method(final_bit_widths_config, graph, fw_info, activation_kpi_method)
                 elif activation_kpi_method == ActivationKPIMethod.MAX_CUT:
-                    # TODO: compute cuts
                     # TODO: Do we need non_conf_kpi in this case or is it invluded in the max cut KPI? (and then it's like in BOPS)
                     memory_graph = MemoryGraph(graph)
                     _, _, cuts = compute_graph_max_cut(memory_graph)

@@ -150,8 +150,6 @@ def activation_max_cut_kpi(mp_cfg: List[int],
 
     for c in cuts:
         cut_memory_size = 0
-        # TODO: need to take cut.mem_elements total size instead of iterating over the nodes
-        #  and consideration of non-quantized nodes need to be inside the cut/mem element
         for elm in c.mem_elements.elements:
             node = graph.find_node_by_name(elm.node_name)
             assert len(node) == 1
