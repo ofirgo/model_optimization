@@ -22,6 +22,10 @@ import keras
 import unittest
 from tensorflow.keras.layers import Conv2D, BatchNormalization, ReLU, Input, SeparableConv2D
 
+from model_compression_toolkit import CoreConfig
+from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_methods import ActivationKPIMethod
+from model_compression_toolkit.core.common.mixed_precision.mixed_precision_quantization_config import \
+    DEFAULT_MIXEDPRECISION_CONFIG
 from model_compression_toolkit.core.tpc_models.default_tpc.latest import get_op_quantization_configs
 from model_compression_toolkit.core.keras.constants import DEPTHWISE_KERNEL, KERNEL
 from model_compression_toolkit.core.keras.graph_substitutions.substitutions.separableconv_decomposition import \
@@ -89,9 +93,14 @@ def prep_test(model, mp_bitwidth_candidates_list, random_datagen):
         mp_bitwidth_candidates_list=mp_bitwidth_candidates_list)
     tpc = generate_activation_mp_tpc_keras(tp_model=tp_model, name="kpi_data_test")
 
-    kpi_data = mct.keras_kpi_data(in_model=model,
-                                  representative_data_gen=random_datagen,
-                                  target_platform_capabilities=tpc)
+    quantization_config, mixed_precision_config = DEFAULT_MIXEDPRECISION_CONFIG.separate_configs()
+    mixed_precision_config.activation_kpi_method = ActivationKPIMethod.MAX_TENSOR
+    kpi_data = mct.keras_kpi_data_experimental(in_model=model,
+                                               representative_data_gen=random_datagen,
+                                               core_config=CoreConfig(
+                                                   quantization_config=quantization_config,
+                                                   mixed_precision_config=mixed_precision_config),
+                                               target_platform_capabilities=tpc)
 
     return kpi_data
 

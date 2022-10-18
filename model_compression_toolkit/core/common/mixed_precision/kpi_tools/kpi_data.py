@@ -20,6 +20,9 @@ from model_compression_toolkit.core.common import Graph
 from model_compression_toolkit.core.common.constants import FLOAT_BITWIDTH
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 from model_compression_toolkit.core.common.graph.edge import EDGE_SINK_INDEX
+from model_compression_toolkit.core.common.graph.memory_graph.compute_graph_max_cut import compute_graph_max_cut
+from model_compression_toolkit.core.common.graph.memory_graph.memory_graph import MemoryGraph
+from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_methods import ActivationKPIMethod
 from model_compression_toolkit.core.common.target_platform import TargetPlatformCapabilities
 from model_compression_toolkit.core.runner import read_model_to_graph, get_finalized_graph
 from model_compression_toolkit.core.common.logger import Logger
@@ -66,19 +69,23 @@ def compute_kpi_data(in_model: Any,
     weights_params = compute_nodes_weights_params(graph=transformed_graph, fw_info=fw_info)
     total_weights_params = 0 if len(weights_params) == 0 else sum(weights_params)
 
-    # Compute max activation tensor
-    activation_output_sizes = compute_activation_output_sizes(graph=transformed_graph)
-    max_activation_tensor_size = 0 if len(activation_output_sizes) == 0 else max(activation_output_sizes)
+    if core_config.mixed_precision_config.activation_kpi_method == ActivationKPIMethod.MAX_CUT:
+        # Compute max cut
+        max_activation_target = compute_activation_max_cut(graph=transformed_graph)
+    else:
+        # Compute max activation tensor
+        activation_output_sizes = compute_activation_output_sizes(graph=transformed_graph)
+        max_activation_target = 0 if len(activation_output_sizes) == 0 else max(activation_output_sizes)
 
     # Compute total kpi - parameters sum + max activation tensor
-    total_size = total_weights_params + max_activation_tensor_size
+    total_size = total_weights_params + max_activation_target
 
     # Compute BOPS kpi - total count of bit-operations for all configurable layers with kernel
     bops_count = compute_total_bops(graph=transformed_graph, fw_info=fw_info, fw_impl=fw_impl)
     bops_count = np.inf if len(bops_count) == 0 else sum(bops_count)
 
     return KPI(weights_memory=total_weights_params,
-               activation_memory=max_activation_tensor_size,
+               activation_memory=max_activation_target,
                total_memory=total_size,
                bops=bops_count)
 
@@ -128,6 +135,25 @@ def compute_activation_output_sizes(graph: Graph) -> np.ndarray:
             activation_outputs.append(node_output_size)
 
     return np.array(activation_outputs)
+
+
+def compute_activation_max_cut(graph: Graph) -> np.ndarray:
+    """
+    Computes the max cut value of a computation on the given graph.
+
+    Args:
+        graph: Finalized Graph object.
+
+    Returns: Max cut value
+
+    """
+    memory_graph = MemoryGraph(graph)
+    schedule, max_cut_value, _ = compute_graph_max_cut(memory_graph)
+
+    if schedule is None:
+        Logger.critical("Failed to find Max Cut for target activation KPI.")
+
+    return max_cut_value
 
 
 def compute_total_bops(graph: Graph, fw_info: FrameworkInfo, fw_impl: FrameworkImplementation) -> np.ndarray:
