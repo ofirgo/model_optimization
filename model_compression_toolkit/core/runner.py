@@ -443,21 +443,21 @@ def _set_final_kpi(graph: Graph,
                     non_conf_kpi = kpi_method([], graph, fw_info)
                     conf_kpi = kpi_method(final_bit_widths_config, graph, fw_info)
                 elif activation_kpi_method == ActivationKPIMethod.MAX_CUT:
-                    # TODO: Do we need non_conf_kpi in this case or is it invluded in the max cut KPI? (and then it's like in BOPS)
                     memory_graph = MemoryGraph(graph)
                     _, _, cuts = compute_graph_max_cut(memory_graph)
-                    non_conf_kpi = kpi_method([], graph, cuts)
-                    conf_kpi = kpi_method(final_bit_widths_config, graph, cuts)
+                    # No need to compute non-configurable nodes KPI separately in MAX_CUT
+                    final_kpis_dict[kpi_target] = kpi_aggr(kpi_method(final_bit_widths_config, graph, cuts), False)[0]
+                    continue
             elif kpi_target == KPITarget.TOTAL:
                 if activation_kpi_method == ActivationKPIMethod.MAX_TENSOR:
                     non_conf_kpi = kpi_method([], graph, fw_info, activation_kpi_method)
                     conf_kpi = kpi_method(final_bit_widths_config, graph, fw_info, activation_kpi_method)
                 elif activation_kpi_method == ActivationKPIMethod.MAX_CUT:
-                    # TODO: Do we need non_conf_kpi in this case or is it invluded in the max cut KPI? (and then it's like in BOPS)
                     memory_graph = MemoryGraph(graph)
                     _, _, cuts = compute_graph_max_cut(memory_graph)
-                    non_conf_kpi = kpi_method([], graph, activation_kpi_method, cuts)
-                    conf_kpi = kpi_method(final_bit_widths_config, graph, activation_kpi_method, cuts)
+                    # No need to compute non-configurable nodes KPI separately in MAX_CUT
+                    final_kpis_dict[kpi_target] = kpi_aggr(kpi_method(final_bit_widths_config, graph, fw_info, activation_kpi_method, cuts), False)[0]
+                    continue
             else:
                 Logger.critical(f"Unrecognized KPI target {kpi_target} was provided for final KPI computation")
 

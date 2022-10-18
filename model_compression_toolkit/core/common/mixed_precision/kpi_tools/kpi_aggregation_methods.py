@@ -76,7 +76,9 @@ def total_kpi(kpi_tensor: np.ndarray, set_constraints: bool = True) -> List[floa
     """
     if not set_constraints:
         weights_kpi = sum([kpi[0] for kpi in kpi_tensor])
-        activation_kpi = max([kpi[1] for kpi in kpi_tensor])
+
+        activation_kpi_vector = [kpi[1] for kpi in kpi_tensor]
+        activation_kpi = max(activation_kpi_vector) if len(activation_kpi_vector) > 0 else 0
         return [weights_kpi + activation_kpi]
 
     weights_kpi = lpSum([kpi[0] for kpi in kpi_tensor])

@@ -192,7 +192,11 @@ def total_weights_activation_kpi(mp_cfg: List[int],
     activation_memory = np.empty(0)
     if activation_kpi_method == ActivationKPIMethod.MAX_CUT:
         assert cuts is not None, "Max Cut activation KPI was chosen but no cuts where provided"
-        activation_memory = activation_max_cut_kpi(mp_cfg, graph, cuts)
+        if len(mp_cfg) == 0:
+            # Non-configurable nodes KPI - no need to compute for activation max cut
+            activation_memory = np.array([])
+        else:
+            activation_memory = activation_max_cut_kpi(mp_cfg, graph, cuts)
 
     elif activation_kpi_method == ActivationKPIMethod.MAX_TENSOR:
         activation_memory = activation_output_size_kpi(mp_cfg, graph)
@@ -312,7 +316,7 @@ def _get_node_cfg_idx(node: BaseNode, mp_cfg: List[int], sorted_configurable_nod
     Returns: An index (integer) of a node's quantization configuration candidate.
     """
 
-    if node.name in sorted_configurable_nodes_names:
+    if node.name in sorted_configurable_nodes_names and len(mp_cfg) > 0:
         node_idx = sorted_configurable_nodes_names.index(node.name)
         return mp_cfg[node_idx]
     else:

@@ -100,15 +100,13 @@ def search_bit_width(graph_to_search_cfg: Graph,
         if not np.isinf(kpi_value):
             kpi_functions[target] = kpi_functions_mapping[target]
 
-    # Compute non-configurable nodes KPIs for each KPI target
-    non_conf_kpi_dict = _non_configurable_nodes_kpi(kpi_functions, target_kpi, graph, fw_info, fw_impl)
-
     # Instantiate a manager object
     search_manager = MixedPrecisionSearchManager(graph,
                                                  fw_info,
                                                  fw_impl,
                                                  se,
                                                  kpi_functions,
+                                                 target_kpi,
                                                  original_graph=graph_to_search_cfg,
                                                  activation_kpi_method=mp_config.activation_kpi_method)
 
@@ -119,35 +117,6 @@ def search_bit_width(graph_to_search_cfg: Graph,
 
     # Search for the desired mixed-precision configuration
     result_bit_cfg = search_method_fn(search_manager,
-                                      target_kpi,
-                                      non_conf_kpi_dict)
+                                      target_kpi)
 
     return result_bit_cfg
-
-
-def _non_configurable_nodes_kpi(kpi_functions, target_kpi, graph, fw_info, fw_impl) -> Dict[KPITarget, np.ndarray]:
-    """
-    Computes a KPI vector of all non-configurable nodes in the given graph for each of the KPI target.
-
-    Args:
-        kpi_functions: A dictionary with pairs of (MpKpiMethod, MpKpiAggregationMethod) mapping a KPITarget to
-                a couple of kpi metric function and kpi aggregation function.
-        target_kpi: Target KPI to bound our feasible solution space s.t the configuration does not violate it.
-        graph: Graph to search a MP configuration for.
-        fw_info: FrameworkInfo object about the specific framework (e.g., attributes of different layers' weights to quantize).
-        fw_impl: FrameworkImplementation object with specific framework methods implementation.
-
-    Returns: A mapping between a KPITarget and its non-configurable nodes' KPI vector.
-
-    """
-
-    non_conf_kpi_dict = {}
-    for target, kpi_value in target_kpi.get_kpi_dict().items():
-        if not np.isinf(kpi_value):
-            # Call for the KPI method of the given target - empty quantization configuration list is passed since we
-            # compute for non-configurable nodes
-            kpi_vector = kpi_functions[target][0]([], graph, fw_info, fw_impl)
-
-            non_conf_kpi_dict[target] = kpi_vector
-
-    return non_conf_kpi_dict

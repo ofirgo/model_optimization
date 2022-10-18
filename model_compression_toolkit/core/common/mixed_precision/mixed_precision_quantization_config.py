@@ -49,6 +49,7 @@ class MixedPrecisionQuantizationConfigV2:
             use_grad_based_weights: Whether to use gradient-based weights for weighted average distance metric computation.
             output_grad_factor: A tuning parameter to be used for gradient-based weights.
             norm_weights: Whether to normalize the returned weights (to get values between 0 and 1).
+            activation_kpi_method: Possible activation KPI method chosen to calculate activation memory constraint.
 
         """
 

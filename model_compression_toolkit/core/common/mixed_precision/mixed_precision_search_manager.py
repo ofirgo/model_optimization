@@ -25,7 +25,7 @@ from model_compression_toolkit.core.common.framework_implementation import Frame
 from model_compression_toolkit.core.common.graph.base_graph import Graph
 from model_compression_toolkit.core.common.graph.virtual_activation_weights_node import VirtualActivationWeightsNode, \
     VirtualSplitWeightsNode, VirtualSplitActivationNode
-from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import KPITarget
+from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import KPITarget, KPI
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_aggregation_methods import MpKpiAggregation
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi_methods import MpKpiMetric, ActivationKPIMethod
 from model_compression_toolkit.core.common.framework_info import FrameworkInfo
@@ -43,6 +43,7 @@ class MixedPrecisionSearchManager:
                  fw_impl: FrameworkImplementation,
                  sensitivity_evaluator: SensitivityEvaluation,
                  kpi_functions: Dict[KPITarget, Tuple[MpKpiMetric, MpKpiAggregation]],
+                 target_kpi: KPI,
                  original_graph: Graph = None,
                  activation_kpi_method: ActivationKPIMethod = ActivationKPIMethod.MAX_CUT):
         """
@@ -55,8 +56,10 @@ class MixedPrecisionSearchManager:
                 a bit-width configuration for the MP model.
             kpi_functions: A dictionary with pairs of (MpKpiMethod, MpKpiAggregationMethod) mapping a KPITarget to
                 a couple of kpi metric function and kpi aggregation function.
+            target_kpi = Target KPI to bound our feasible solution space s.t the configuration does not violate it.
             original_graph: In case we have a search over a virtual graph (if we have BOPS KPI target), then this argument
                 will contain the original graph (for config reconstruction purposes).
+            activation_kpi_method: Possible activation KPI method chosen to calculate activation memory constraint.
         """
 
         self.graph = graph
@@ -79,9 +82,11 @@ class MixedPrecisionSearchManager:
             self.cuts = None
 
         self.compute_kpi_functions = kpi_functions
+        self.target_kpi = target_kpi
         self.min_kpi_config = self.graph.get_min_candidates_config()
         self.max_kpi_config = self.graph.get_max_candidates_config()
         self.min_kpi = self.compute_min_kpis()
+        self.non_conf_kpi_dict = self._non_configurable_nodes_kpi()
 
         self.config_reconstruction_helper = ConfigReconstructionHelper(virtual_graph=self.graph,
                                                                        original_graph=self.original_graph)
@@ -126,11 +131,15 @@ class MixedPrecisionSearchManager:
         Returns: A dictionary mapping each kpi target to its respective minimal KPIs values.
 
         """
+
         min_kpis = {}
-        for kpi_target, kpi_fns in self.compute_kpi_functions.items():
-            # kpi_fns is a pair of kpi computation method and kpi aggregation method (in this method we only need
-            # the first one)
-            min_kpis[kpi_target] = kpi_fns[0](self.min_kpi_config, self.graph, self.fw_info, self.fw_impl)
+        for kpi_target, kpi_value in self.target_kpi.get_kpi_dict().items():
+            if not np.isinf(kpi_value):
+                # kpi_fns is a pair of kpi computation method and kpi aggregation method (in this method we only need
+                # the first one)
+                min_kpis[kpi_target] = self.compute_kpi_for_target(target=kpi_target,
+                                                                   config=self.min_kpi_config,
+                                                                   kpi_method=self.compute_kpi_functions[kpi_target][0])
 
         return min_kpis
 
@@ -224,23 +233,38 @@ class MixedPrecisionSearchManager:
         kpi_method = self.compute_kpi_functions[target][0]
         updated_config = self.replace_config_in_index(self.min_kpi_config,
                                                       conf_node_idx,
-                                                      candidate_idx),
+                                                      candidate_idx)
+
+        return self.compute_kpi_for_target(target, updated_config, kpi_method)
+
+    def compute_kpi_for_target(self, target, config, kpi_method) -> np.ndarray:
+        """
+        Computes a KPI vector for a given KPI target on a given bit-width config.
+
+        Args:
+            target: The target for which the KPI is calculated (a KPITarget value).
+            config: A bit-width configuration.
+            kpi_method: A KPI method.
+
+        Returns: A KPI values vector.
+
+        """
         if target == KPITarget.WEIGHTS:
-            return kpi_method(updated_config, self.graph, self.fw_info)
+            return kpi_method(config, self.graph, self.fw_info)
         elif target == KPITarget.ACTIVATION:
             if self.activation_kpi_method == ActivationKPIMethod.MAX_TENSOR:
-                return kpi_method(updated_config, self.graph)
+                return kpi_method(config, self.graph)
             elif self.activation_kpi_method == ActivationKPIMethod.MAX_CUT:
                 assert self.cuts is not None, "Trying to come Max Cut KPI but cuts set is None"
-                return kpi_method(updated_config, self.graph, self.cuts)
+                return kpi_method(config, self.graph, self.cuts)
         elif target == KPITarget.TOTAL:
             if self.activation_kpi_method == ActivationKPIMethod.MAX_TENSOR:
-                return kpi_method(updated_config, self.graph, self.fw_info, self.activation_kpi_method)
+                return kpi_method(config, self.graph, self.fw_info, self.activation_kpi_method)
             elif self.activation_kpi_method == ActivationKPIMethod.MAX_CUT:
                 assert self.cuts is not None, "Trying to come Max Cut KPI but cuts set is None"
-                return kpi_method(updated_config, self.graph, self.activation_kpi_method, self.cuts)
+                return kpi_method(config, self.graph, self.fw_info, self.activation_kpi_method, self.cuts)
         elif target == KPITarget.BOPS:
-            return kpi_method(updated_config, self.graph, self.fw_info, self.fw_impl)
+            return kpi_method(config, self.graph, self.fw_info, self.fw_impl)
         else:
             Logger.critical(f"Unrecognized KPI target {target} was provided for KPI computation")
 
@@ -261,6 +285,30 @@ class MixedPrecisionSearchManager:
         updated_cfg = mp_cfg.copy()
         updated_cfg[idx] = value
         return updated_cfg
+
+    def _non_configurable_nodes_kpi(self) -> Dict[KPITarget, np.ndarray]:
+        """
+        Computes a KPI vector of all non-configurable nodes in the given graph for each of the KPI target.
+
+        Returns: A mapping between a KPITarget and its non-configurable nodes' KPI vector.
+        """
+
+        non_conf_kpi_dict = {}
+        for target, kpi_value in self.target_kpi.get_kpi_dict().items():
+            if not np.isinf(kpi_value):
+                # Call for the KPI method of the given target - empty quantization configuration list is passed since we
+                # compute for non-configurable nodes
+                if target == KPITarget.ACTIVATION and self.activation_kpi_method == ActivationKPIMethod.MAX_CUT or \
+                        target == KPITarget.BOPS:
+                    kpi_vector = None
+                else:
+                    kpi_vector = self.compute_kpi_for_target(target=target,
+                                                             config=[],
+                                                             kpi_method=self.compute_kpi_functions[target][0])
+
+                non_conf_kpi_dict[target] = kpi_vector
+
+        return non_conf_kpi_dict
 
 
 class ConfigReconstructionHelper:
