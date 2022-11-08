@@ -20,6 +20,7 @@ from tensorflow_model_optimization.python.core.quantization.keras.quantize_wrapp
 from tensorflow_model_optimization.python.core.quantization.keras.quantizers import Quantizer
 from typing import Dict, Any, List
 
+from model_compression_toolkit.core.common.constants import FLOAT_CANDIDATE_FLAG
 from model_compression_toolkit.core.common.quantization.candidate_node_quantization_config import \
     CandidateNodeQuantizationConfig
 
@@ -56,6 +57,7 @@ class SelectiveWeightsQuantizer(Quantizer):
         self.quantized_weights = []
         self.active_quantization_config_index = max_candidate_idx
         self._store_quantized_weights()
+        self.use_float_weights = False
 
     def _quantize_by_qc(self, index: int) -> np.ndarray:
         """
@@ -118,7 +120,13 @@ class SelectiveWeightsQuantizer(Quantizer):
             index that is in active_quantization_config_index the quantizer holds).
         """
 
+        if self.use_float_weights:
+            return self.float_weight
+
         return self.quantized_weights[self.active_quantization_config_index]
+
+    def activate_float_weights(self):
+        self.use_float_weights = True
 
     def set_active_quantization_config_index(self, index: int):
         """
@@ -130,11 +138,15 @@ class SelectiveWeightsQuantizer(Quantizer):
             version of the float weight.
 
         """
-        assert index < len(
-            self.node_q_cfg), f'Quantizer has {len(self.node_q_cfg)} ' \
-                                      f'possible nbits. Can not set ' \
-                                      f'index {index}'
-        self.active_quantization_config_index = index
+        if index == FLOAT_CANDIDATE_FLAG:
+            self.use_float_weights = True
+        else:
+            assert index < len(
+                self.node_q_cfg), f'Quantizer has {len(self.node_q_cfg)} ' \
+                                          f'possible nbits. Can not set ' \
+                                          f'index {index}'
+            self.active_quantization_config_index = index
+            self.use_float_weights = False
 
     def get_active_quantization_config_index(self) -> int:
         """
@@ -151,6 +163,9 @@ class SelectiveWeightsQuantizer(Quantizer):
         Returns: The current active quantized weight the quantizer holds.
 
         """
+        if self.use_float_weight:
+            return self.float_weight
+
         return self.quantized_weights[self.active_quantization_config_index]
 
     def get_config(self) -> Dict[str, Any]:

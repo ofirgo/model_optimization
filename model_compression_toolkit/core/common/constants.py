@@ -62,6 +62,8 @@ WEIGHTS_NBITS_ATTRIBUTE = 'weights_n_bits'
 CORRECTED_BIAS_ATTRIBUTE = 'corrected_bias'
 ACTIVATION_NBITS_ATTRIBUTE = 'activation_n_bits'
 
+FLOAT_CANDIDATE_FLAG = -1
+
 
 # Quantization Parameters Iterative Search Defaults:
 SYMMETRIC_TENSOR_N_ITER = 40
