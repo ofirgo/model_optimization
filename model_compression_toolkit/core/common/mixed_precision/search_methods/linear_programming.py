@@ -254,18 +254,18 @@ def _build_layer_to_metrics_mapping(search_manager: MixedPrecisionSearchManager,
     if is_bops_target_kpi:
         origin_max_config = search_manager.config_reconstruction_helper.reconstruct_config_from_virtual_graph(search_manager.max_kpi_config)
         max_config_value = search_manager.compute_metric_fn(origin_max_config)
-    else:
-        max_config_value = search_manager.compute_metric_fn(search_manager.max_kpi_config)
+    # else:
+    #     max_config_value = search_manager.compute_metric_fn(search_manager.max_kpi_config)
 
     for node_idx, layer_possible_bitwidths_indices in tqdm(search_manager.layer_to_bitwidth_mapping.items(),
                                                            total=len(search_manager.layer_to_bitwidth_mapping)):
         layer_to_metrics_mapping[node_idx] = {}
 
         for bitwidth_idx in layer_possible_bitwidths_indices:
-            if search_manager.max_kpi_config[node_idx] == bitwidth_idx:
-                # This is a computation of the metric for the max configuration, assign pre-calculated value
-                layer_to_metrics_mapping[node_idx][bitwidth_idx] = max_config_value
-                continue
+            # if search_manager.max_kpi_config[node_idx] == bitwidth_idx:
+            #     # This is a computation of the metric for the max configuration, assign pre-calculated value
+            #     layer_to_metrics_mapping[node_idx][bitwidth_idx] = max_config_value
+            #     continue
 
             # Create a configuration that differs at one layer only from the baseline model
             mp_model_configuration = search_manager.max_kpi_config.copy()
