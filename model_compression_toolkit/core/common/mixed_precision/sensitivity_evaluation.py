@@ -241,7 +241,7 @@ class SensitivityEvaluation:
                     current_layer = self.fw_impl.get_model_layer_by_name(model_mp, node_name)
                     self.set_layer_to_bitwidth(current_layer, mp_model_configuration[node_idx_to_configure])
                 else:
-                    raise Exception("The last configurable node is not included in the list of interest points for"
+                    raise Exception("The last configurable node is not included in the list of interest points for"  # pragma: no cover
                                     "sensitivity evaluation metric for the mixed-precision search.")
 
         else:  # use the entire mp_model_configuration to configure the model
@@ -252,7 +252,7 @@ class SensitivityEvaluation:
                     self.set_layer_to_bitwidth(current_layer, mp_model_configuration[node_idx_to_configure])
                 else:
                     raise Exception("The last configurable node is not included in the list of interest points for"
-                                    "sensitivity evaluation metric for the mixed-precision search.")
+                                    "sensitivity evaluation metric for the mixed-precision search.")  # pragma: no cover
 
     def _compute_distance_matrix(self,
                                  baseline_tensors: List[Any],
