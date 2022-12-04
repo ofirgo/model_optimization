@@ -31,7 +31,7 @@ from model_compression_toolkit.core.keras.quantizer.mixed_precision.selective_qu
 from packaging import version
 
 if version.parse(tf.__version__) < version.parse("2.6"):
-    from tensorflow.python.keras.layers.core import TFOpLambda, SlicingOpLambda
+    from tensorflow.python.keras.layers.core import TFOpLambda, SlicingOpLambda  # pragma: no cover
 else:
     from keras.layers.core import TFOpLambda, SlicingOpLambda
 
@@ -104,7 +104,7 @@ class MixedPrecisionKerasModelBuilder(KerasModelBuilder):
                 # Wrap only if its weights should be quantized
                 if node.name in conf_nodes_names:
                     if node.layer_class in [TFOpLambda, SlicingOpLambda]:
-                        Logger.critical(f"Activation mixed-precision is not supported for layers of type "
+                        Logger.critical(f"Activation mixed-precision is not supported for layers of type "  # pragma: no cover
                                         f"{node.layer_class}. Please modify the TargetPlatformModel object, "
                                         f"such that layers of type {node.layer_class} "
                                         f"won't have more than one quantization configuration option.")
@@ -114,7 +114,7 @@ class MixedPrecisionKerasModelBuilder(KerasModelBuilder):
             elif is_layer_fake_quant(layer):
                 return layer
             else:
-                raise Exception(
+                raise Exception(  # pragma: no cover
                     f'Mismatch between keras model and graph cant find node named: '
                     f'{get_node_name_from_layer(layer)}')
 
