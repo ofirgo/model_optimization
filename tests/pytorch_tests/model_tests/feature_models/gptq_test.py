@@ -18,7 +18,7 @@ import torch.nn as nn
 from tests.pytorch_tests.model_tests.base_pytorch_feature_test import BasePytorchFeatureNetworkTest
 import model_compression_toolkit as mct
 from model_compression_toolkit.core.pytorch.default_framework_info import DEFAULT_PYTORCH_INFO
-from model_compression_toolkit.gptq.common.gptq_config import GradientPTQConfig, GradientPTQConfigV2, RoundingType
+from model_compression_toolkit.gptq.common.gptq_config import GradientPTQConfig, GradientPTQConfigV2, RoundingType, GumbelConfig
 from model_compression_toolkit.core.pytorch.utils import to_torch_tensor, torch_tensor_to_numpy
 from model_compression_toolkit.gptq.pytorch.gptq_loss import multiple_tensors_mse_loss
 from tests.common_tests.helpers.generate_test_tp_model import generate_test_tp_model
@@ -55,7 +55,7 @@ class GPTQBaseTest(BasePytorchFeatureNetworkTest):
     def create_networks(self):
         return TestModel()
 
-    def gptq_compare(self, ptq_model, gptq_model, input_x=None, max_change=0):
+    def gptq_compare(self, ptq_model, gptq_model, input_x=None):
         pass
 
     def run_test(self):
@@ -98,9 +98,7 @@ class GPTQBaseTest(BasePytorchFeatureNetworkTest):
         x = to_torch_tensor(self.representative_data_gen())
 
         # Compare
-        bits = self.get_tpc().tp_model.default_qco.quantization_config_list[0].weights_n_bits
-        max_change = self.get_gptq_config().lsb_change_per_bit_width.get(bits)/(2**(bits-1))
-        self.gptq_compare(ptq_model, gptq_model, input_x=x, max_change=max_change)
+        self.gptq_compare(ptq_model, gptq_model, input_x=x)
 
 
 class STEAccuracyTest(GPTQBaseTest):
@@ -123,11 +121,11 @@ class STEAccuracyTest(GPTQBaseTest):
                                    optimizer_bias=torch.optim.Adam([torch.Tensor([])], lr=0.4),
                                    rounding_type=RoundingType.STE)
 
-    def gptq_compare(self, ptq_model, gptq_model, input_x=None, max_change=None):
-        for ptq_param, gptq_param in zip(ptq_model.parameters(), gptq_model.parameters()):
-            delta_w = torch.abs(gptq_param - ptq_param)
-            if len(delta_w.shape) > 1: # Skip bias
-                self.unit_test.assertTrue(torch.max(delta_w) <= max_change, msg='GPTQ weights changes are bigger than expected!')
+    def gptq_compare(self, ptq_model, gptq_model, input_x=None):
+        ptq_weights = torch_tensor_to_numpy(list(ptq_model.parameters()))
+        gptq_weights = torch_tensor_to_numpy(list(gptq_model.parameters()))
+        self.unit_test.assertTrue(len(ptq_weights) == len(gptq_weights),
+                                  msg='PTQ model number of weights different from GPTQ model!')
 
 
 class STEWeightsUpdateTest(GPTQBaseTest):
@@ -191,6 +189,38 @@ class STELearnRateZeroTest(GPTQBaseTest):
             self.unit_test.assertTrue(np.all(w_diff), msg="GPTQ: some weights were updated")
 
 
+class GumbelLearnRateZeroNoTempLearnTest(GPTQBaseTest):
+
+    def get_gptq_config(self):
+        return GradientPTQConfig(1,
+                                 optimizer=torch.optim.Adam([torch.Tensor([])], lr=0),
+                                 loss=multiple_tensors_mse_loss,
+                                 train_bias=False,
+                                 quantizer_config=GumbelConfig(temperature_learning=False),
+                                 rounding_type=RoundingType.GumbelRounding)
+
+    def get_gptq_configv2(self):
+        return GradientPTQConfigV2(1,
+                                   optimizer=torch.optim.Adam([torch.Tensor([])], lr=0),
+                                   loss=multiple_tensors_mse_loss,
+                                   train_bias=False,
+                                   quantizer_config=GumbelConfig(temperature_learning=False),
+                                   rounding_type=RoundingType.GumbelRounding)
+
+    def compare(self, ptq_model, gptq_model, input_x=None, quantization_info=None):
+        ptq_weights = torch_tensor_to_numpy(list(ptq_model.parameters()))
+        gptq_weights = torch_tensor_to_numpy(list(gptq_model.parameters()))
+
+        # check number of weights are equal
+        self.unit_test.assertTrue(len(ptq_weights) == len(gptq_weights),
+                                  msg='PTQ model number of weights different from GPTQ model!')
+
+        # check all weights were not updated in gptq model compared to ptq model
+        w_diffs = [np.isclose(np.max(np.abs(w_ptq - w_gptq)), 0) for w_ptq, w_gptq in zip(ptq_weights, gptq_weights)]
+        for w_diff in w_diffs:
+            self.unit_test.assertTrue(np.all(w_diff), msg="GPTQ: some weights were updated")
+
+
 class SymGumbelAccuracyTest(GPTQBaseTest):
 
     def get_gptq_config(self):
@@ -213,11 +243,45 @@ class SymGumbelAccuracyTest(GPTQBaseTest):
                                    quantization_parameters_learning=True,
                                    rounding_type=RoundingType.GumbelRounding)
 
-    def gptq_compare(self, ptq_model, gptq_model, input_x=None, max_change=None):
-        for ptq_param, gptq_param in zip(ptq_model.parameters(), gptq_model.parameters()):
-            delta_w = torch.abs(gptq_param - ptq_param)
-            if len(delta_w.shape) > 1: # Skip bias
-                self.unit_test.assertTrue(torch.max(delta_w) <= max_change, msg='GPTQ weights changes are bigger than expected!')
+    def gptq_compare(self, ptq_model, gptq_model, input_x=None):
+        ptq_weights = torch_tensor_to_numpy(list(ptq_model.parameters()))
+        gptq_weights = torch_tensor_to_numpy(list(gptq_model.parameters()))
+        self.unit_test.assertTrue(len(ptq_weights) == len(gptq_weights),
+                                  msg='PTQ model number of weights different from GPTQ model!')
+
+
+class SymGumbelAccuracyTest2(GPTQBaseTest):
+
+    def get_tpc(self):
+        return generate_pytorch_tpc(
+            name="gptq_uniform_gumbel_test",
+            tp_model=generate_test_tp_model({"weights_quantization_method": tp.QuantizationMethod.SYMMETRIC}))
+
+    def get_gptq_config(self):
+        return GradientPTQConfig(5,
+                                 optimizer=torch.optim.Adam([torch.Tensor([])], lr=1e-4),
+                                 loss=multiple_tensors_mse_loss,
+                                 train_bias=False,
+                                 use_jac_based_weights=True,
+                                 optimizer_rest=torch.optim.Adam([torch.Tensor([])], lr=1e-4),
+                                 quantization_parameters_learning=True,
+                                 rounding_type=RoundingType.GumbelRounding)
+
+    def get_gptq_configv2(self):
+        return GradientPTQConfigV2(5,
+                                   optimizer=torch.optim.Adam([torch.Tensor([])], lr=1e-4),
+                                   loss=multiple_tensors_mse_loss,
+                                   train_bias=False,
+                                   use_jac_based_weights=True,
+                                   optimizer_rest=torch.optim.Adam([torch.Tensor([])], lr=1e-4),
+                                   quantization_parameters_learning=True,
+                                   rounding_type=RoundingType.GumbelRounding)
+
+    def gptq_compare(self, ptq_model, gptq_model, input_x=None):
+        ptq_weights = torch_tensor_to_numpy(list(ptq_model.parameters()))
+        gptq_weights = torch_tensor_to_numpy(list(gptq_model.parameters()))
+        self.unit_test.assertTrue(len(ptq_weights) == len(gptq_weights),
+                                  msg='PTQ model number of weights different from GPTQ model!')
 
 
 class SymGumbelWeightsUpdateTest(GPTQBaseTest):
@@ -281,11 +345,11 @@ class UniformGumbelAccuracyTest(GPTQBaseTest):
                                    quantization_parameters_learning=True,
                                    rounding_type=RoundingType.GumbelRounding)
 
-    def gptq_compare(self, ptq_model, gptq_model, input_x=None, max_change=None):
-        for ptq_param, gptq_param in zip(ptq_model.parameters(), gptq_model.parameters()):
-            delta_w = torch.abs(gptq_param - ptq_param)
-            if len(delta_w.shape) > 1: # Skip bias
-                self.unit_test.assertTrue(torch.max(delta_w) <= max_change, msg='GPTQ weights changes are bigger than expected!')
+    def gptq_compare(self, ptq_model, gptq_model, input_x=None):
+        ptq_weights = torch_tensor_to_numpy(list(ptq_model.parameters()))
+        gptq_weights = torch_tensor_to_numpy(list(gptq_model.parameters()))
+        self.unit_test.assertTrue(len(ptq_weights) == len(gptq_weights),
+                                  msg='PTQ model number of weights different from GPTQ model!')
 
 
 class UniformGumbelWeightsUpdateTest(GPTQBaseTest):

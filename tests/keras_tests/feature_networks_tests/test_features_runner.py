@@ -92,7 +92,7 @@ from tests.keras_tests.feature_networks_tests.feature_networks.multiple_inputs_m
 from tests.keras_tests.feature_networks_tests.feature_networks.scale_equalization_test import ScaleEqualizationTest
 from tests.keras_tests.feature_networks_tests.feature_networks.multi_inputs_to_node_test import MultiInputsToNodeTest
 from tests.keras_tests.feature_networks_tests.feature_networks.gptq.gptq_test import GradientPTQTest, \
-    GradientPTQWeightsUpdateTest, GradientPTQLearnRateZeroTest, GradientPTQWeightedLossTest
+    GradientPTQWeightsUpdateTest, GradientPTQLearnRateZeroTest, GradientPTQWeightedLossTest, GradientPTQNoTempLearningTest
 from tests.keras_tests.feature_networks_tests.feature_networks.gptq.gptq_conv import \
     GradientPTQLearnRateZeroConvGroupTest, GradientPTQWeightsUpdateConvGroupTest, \
     GradientPTQLearnRateZeroConvGroupDilationTest, GradientPTQWeightsUpdateConvGroupDilationTest
@@ -317,7 +317,7 @@ class FeatureNetworkTest(unittest.TestCase):
 
     def test_shift_neg_activation_conv2d(self):
         ShiftNegActivationTest(self, linear_op_to_test=layers.Conv2D(3, 4),
-                               activation_op_to_test=layers.Activation('swish')).run_test()
+                               activation_op_to_test=layers.Activation('swish'), param_search=True).run_test()
         ShiftNegActivationTest(self, linear_op_to_test=layers.Conv2D(3, 4, strides=3),
                                activation_op_to_test=layers.Activation('swish')).run_test()
         ShiftNegActivationTest(self, linear_op_to_test=layers.Conv2D(3, (3, 4), strides=2),
@@ -352,7 +352,7 @@ class FeatureNetworkTest(unittest.TestCase):
                                use_pad_layer=True).run_test()
         ShiftNegActivationTest(self, linear_op_to_test=layers.Conv2D(3, (7, 5), strides=4),
                                activation_op_to_test=layers.Activation('swish'),
-                               use_pad_layer=True).run_test()
+                               use_pad_layer=True, param_search=True).run_test()
         ShiftNegActivationTest(self, linear_op_to_test=layers.Conv2D(3, (8, 10), strides=5),
                                activation_op_to_test=layers.Activation('swish'),
                                use_pad_layer=True).run_test()
@@ -485,6 +485,7 @@ class FeatureNetworkTest(unittest.TestCase):
 
     def test_gptq(self, experimental_facade=False, experimental_exporter=False):
         GradientPTQTest(self).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
+        GradientPTQNoTempLearningTest(self, is_gumbel=True).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
         GradientPTQWeightsUpdateTest(self).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
         GradientPTQLearnRateZeroTest(self).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
         GradientPTQWeightedLossTest(self).run_test(experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
