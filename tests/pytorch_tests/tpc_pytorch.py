@@ -43,7 +43,8 @@ def generate_activation_mp_tpc_pytorch(tp_model, name="activation_mp_pytorch_tp"
                                                      reshape,
                                                      unsqueeze,
                                                      BatchNorm2d,
-                                                     torch.Tensor.size])
+                                                     torch.Tensor.size,
+                                                    torch.argmax])
 
         tp.OperationsSetToLayers("Weights_n_Activation", [Conv2d,
                                                            Linear,
