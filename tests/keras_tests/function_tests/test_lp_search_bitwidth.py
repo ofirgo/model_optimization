@@ -16,7 +16,8 @@ import numpy as np
 import unittest
 from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2
 
-from model_compression_toolkit.core.common.mixed_precision.distance_weighting import get_average_weights
+from model_compression_toolkit.core.common.mixed_precision.distance_weighting import get_average_weights, \
+    get_last_layer_weights
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import KPI, KPITarget
 from model_compression_toolkit.core.common.mixed_precision.mixed_precision_quantization_config import \
     MixedPrecisionQuantizationConfigV2
@@ -188,13 +189,7 @@ class TestLpSearchBitwidth(unittest.TestCase):
 
 class TestSearchBitwidthConfiguration(unittest.TestCase):
 
-    def test_search_engine(self):
-        core_config = CoreConfig(quantization_config=DEFAULTCONFIG,
-                                 mixed_precision_config=MixedPrecisionQuantizationConfigV2(compute_mse,
-                                                                                           get_average_weights,
-                                                                                           num_of_images=1,
-                                                                                           use_grad_based_weights=False))
-
+    def run_search_bitwidth_config_test(self, core_config):
         base_config, mixed_precision_cfg_list = get_op_quantization_configs()
         base_config = base_config.clone_and_edit(enable_activation_quantization=False)
         tp_model = generate_mixed_precision_test_tp_model(
@@ -267,6 +262,24 @@ class TestSearchBitwidthConfiguration(unittest.TestCase):
                                    mp_config=core_config.mixed_precision_config,
                                    representative_data_gen=representative_data_gen,
                                    search_method=BitWidthSearchMethod.INTEGER_PROGRAMMING)
+
+    def test_lp_search(self):
+        core_config_avg_weights = CoreConfig(quantization_config=DEFAULTCONFIG,
+                                             mixed_precision_config=MixedPrecisionQuantizationConfigV2(compute_mse,
+                                                                                                       get_average_weights,
+                                                                                                       num_of_images=1,
+                                                                                                       use_grad_based_weights=False))
+
+        self.run_search_bitwidth_config_test(core_config_avg_weights)
+
+        core_config_last_layer = CoreConfig(quantization_config=DEFAULTCONFIG,
+                                            mixed_precision_config=MixedPrecisionQuantizationConfigV2(compute_mse,
+                                                                                                      get_last_layer_weights,
+                                                                                                      num_of_images=1,
+                                                                                                      use_grad_based_weights=False))
+
+        self.run_search_bitwidth_config_test(core_config_last_layer)
+
 
 
 if __name__ == '__main__':

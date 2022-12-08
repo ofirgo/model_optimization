@@ -44,7 +44,8 @@ from tests.keras_tests.feature_networks_tests.feature_networks.softmax_shift_tes
 from tests.keras_tests.feature_networks_tests.feature_networks.weights_mixed_precision_tests import \
     MixedPercisionBaseTest, \
     MixedPercisionSearchTest, MixedPercisionManuallyConfiguredTest, MixedPercisionDepthwiseTest, \
-    MixedPercisionSearchKPI4BitsAvgTest, MixedPercisionSearchKPI2BitsAvgTest, MixedPrecisionActivationDisabled
+    MixedPercisionSearchKPI4BitsAvgTest, MixedPercisionSearchKPI2BitsAvgTest, MixedPrecisionActivationDisabled, \
+    MixedPercisionSearchLastLayerDistanceTest
 from tests.keras_tests.feature_networks_tests.feature_networks.mixed_precision_tests import \
     MixedPrecisionActivationSearchTest, MixedPrecisionActivationSearchKPI4BitsAvgTest, \
     MixedPrecisionActivationSearchKPI2BitsAvgTest, MixedPrecisionActivationDepthwiseTest, \
@@ -176,6 +177,9 @@ class FeatureNetworkTest(unittest.TestCase):
 
     def test_mixed_precision_dw(self):
         MixedPercisionDepthwiseTest(self).run_test()
+
+    def test_mixed_precision_search_with_last_layer_distance(self):
+        MixedPercisionSearchLastLayerDistanceTest(self).run_test(experimental_facade=True)
 
     def test_mixed_precision_activation_search(self):
         MixedPrecisionActivationSearchTest(self).run_test()

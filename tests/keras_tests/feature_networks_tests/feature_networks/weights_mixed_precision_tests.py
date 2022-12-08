@@ -18,6 +18,7 @@ import numpy as np
 import tensorflow as tf
 from keras.layers import DepthwiseConv2D, ReLU
 
+from model_compression_toolkit.core.common.mixed_precision.distance_weighting import get_last_layer_weights
 from model_compression_toolkit.core.tpc_models.default_tpc.latest import get_op_quantization_configs, generate_keras_tpc
 from tests.common_tests.helpers.generate_test_tp_model import generate_mixed_precision_test_tp_model
 from tests.keras_tests.feature_networks_tests.base_keras_feature_test import BaseKerasFeatureNetworkTest
@@ -252,3 +253,34 @@ class MixedPrecisionActivationDisabled(MixedPercisionBaseTest):
         for i in range(32):  # quantized per channel
             self.unit_test.assertTrue(
                 np.unique(quantized_model.layers[2].weights[0][:, :, :, i]).flatten().shape[0] <= 256)
+
+
+class MixedPercisionSearchLastLayerDistanceTest(MixedPercisionBaseTest):
+    def __init__(self, unit_test):
+        super().__init__(unit_test, val_batch_size=2)
+
+    def get_mixed_precision_v2_config(self):
+        return MixedPrecisionQuantizationConfigV2(num_of_images=1,
+                                                  distance_weighting_method=get_last_layer_weights,
+                                                  use_grad_based_weights=False)
+
+    def get_kpi(self):
+        # kpi is infinity -> should give best model - 8bits
+        return KPI(np.inf)
+
+    def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
+        assert (quantization_info.mixed_precision_cfg == [0,
+                                                          0]).all()  # kpi is infinity -> should give best model - 8bits
+        for i in range(32):  # quantized per channel
+            self.unit_test.assertTrue(
+                np.unique(quantized_model.layers[2].weights[0][:, :, :, i]).flatten().shape[0] <= 256)
+        for i in range(32):  # quantized per channel
+            self.unit_test.assertTrue(
+                np.unique(quantized_model.layers[4].weights[0][:, :, :, i]).flatten().shape[0] <= 256)
+
+        # Verify final KPI
+        self.unit_test.assertTrue(
+            quantization_info.final_kpi.weights_memory + quantization_info.final_kpi.activation_memory ==
+            quantization_info.final_kpi.total_memory,
+            "Running weights mixed-precision with unconstrained KPI, "
+            "final weights and activation memory sum should be equal to total memory.")
