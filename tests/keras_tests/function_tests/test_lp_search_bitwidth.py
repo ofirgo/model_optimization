@@ -112,6 +112,11 @@ class TestLpSearchBitwidth(unittest.TestCase):
         self.assertTrue(len(bit_cfg) == 1)
         self.assertTrue(bit_cfg[0] == 2)
 
+        target_kpi = None  # target KPI is not defined!
+        with self.assertRaises(Exception):
+            bit_cfg = mp_integer_programming_search(mock_search_manager,
+                                                    target_kpi=target_kpi)
+
     def test_search_activation_only(self):
         target_kpi = KPI(activation_memory=2)
         layer_to_kpi_mapping = {0: {2: KPI(activation_memory=1),
@@ -263,7 +268,7 @@ class TestSearchBitwidthConfiguration(unittest.TestCase):
                                    representative_data_gen=representative_data_gen,
                                    search_method=BitWidthSearchMethod.INTEGER_PROGRAMMING)
 
-    def test_lp_search(self):
+    def test_mixed_precision_search_facade(self):
         core_config_avg_weights = CoreConfig(quantization_config=DEFAULTCONFIG,
                                              mixed_precision_config=MixedPrecisionQuantizationConfigV2(compute_mse,
                                                                                                        get_average_weights,

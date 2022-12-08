@@ -14,6 +14,7 @@
 # ==============================================================================
 
 import numpy as np
+from docutils.nodes import target
 from pulp import *
 from tqdm import tqdm
 from typing import Dict, List, Tuple, Callable
@@ -47,6 +48,11 @@ def mp_integer_programming_search(search_manager: MixedPrecisionSearchManager,
 
     # Build a mapping from each layer's index (in the model) to a dictionary that maps the
     # bitwidth index to the observed sensitivity of the model when using that bitwidth for that layer.
+
+    if target_kpi is None or search_manager is None:
+        Logger.critical("Can't run mixed precision search with given target_kpi=None or search_manager=None."
+                        "Please provide a valid target_kpi and check the mixed precision parameters values.")
+
     layer_to_metrics_mapping = _build_layer_to_metrics_mapping(search_manager, target_kpi)
 
     # Init variables to find their values when solving the lp problem.
@@ -166,9 +172,9 @@ def _formalize_problem(layer_to_indicator_vars_mapping: Dict[int, Dict[int, LpVa
                                             indicators_matrix=indicators_matrix,
                                             lp_problem=lp_problem,
                                             non_conf_kpi_vector=non_conf_kpi_vector)
-    else:
-        raise Exception("Can't run mixed-precision search with given target_kpi=None."
-                        "Please provide a valid target_kpi.")
+    else:  # pragma: no cover
+        raise Logger.critical("Can't run mixed-precision search with given target_kpi=None."
+                              "Please provide a valid target_kpi.")
     return lp_problem
 
 
