@@ -60,7 +60,7 @@ def weights_size_kpi(mp_cfg: List[int],
                     node_nbits = n.candidates_quantization_cfg[0].weights_quantization_cfg.weights_n_bits
                     node_weights_memory_in_bytes = _compute_node_weights_memory(n, node_nbits, fw_info)
                     weights_memory.append(node_weights_memory_in_bytes)
-                elif not n.reuse:
+                elif not n.reuse:  # pragma: no cover
                     Logger.warning(f"Non-configurable nodes should have a single quantization configuration candidate,"
                                    f"but node {n.name} has {len(n.candidates_quantization_cfg)} candidates. "
                                    f"The node's weights memory is not considered for the weights KPI computation.")
@@ -111,8 +111,8 @@ def activation_output_size_kpi(mp_cfg: List[int],
                     node_nbits = n.candidates_quantization_cfg[0].activation_quantization_cfg.activation_n_bits
                     node_activation_memory_in_bytes = _compute_node_activation_memory(n, node_nbits)
                     activation_memory.append(node_activation_memory_in_bytes)
-                else:
-                    Logger.warning(f"Non-configurable nodes should have a single quantization configuration candidate,"  # pragma: no cover
+                else:  # pragma: no cover
+                    Logger.warning(f"Non-configurable nodes should have a single quantization configuration candidate,"
                                    f"but node {n.name} has {len(n.candidates_quantization_cfg)} candidates. "
                                    f"The node's activation memory is not considered for the weights KPI computation.")
     else:
@@ -170,7 +170,7 @@ def total_weights_activation_kpi(mp_cfg: List[int],
                         node_weights_memory_in_bytes = _compute_node_weights_memory(n, node_nbits, fw_info)
                         non_configurable = True
 
-                    elif not n.reuse:
+                    elif not n.reuse:  # pragma: no cover
                         Logger.warning(
                             f"Non-configurable nodes should have a single quantization configuration candidate,"
                             f"but node {n.name} has {len(n.candidates_quantization_cfg)} candidates. "
@@ -184,8 +184,8 @@ def total_weights_activation_kpi(mp_cfg: List[int],
                     node_activation_memory_in_bytes = _compute_node_activation_memory(n, node_nbits)
                     non_configurable = True
 
-                else:
-                    Logger.warning(f"Non-configurable nodes should have a single quantization configuration candidate,"  # pragma: no cover
+                else:  # pragma: no cover
+                    Logger.warning(f"Non-configurable nodes should have a single quantization configuration candidate,"  
                                    f"but node {n.name} has {len(n.candidates_quantization_cfg)} candidates. "
                                    f"The node's activation memory is not considered for the weights KPI computation.")
 
