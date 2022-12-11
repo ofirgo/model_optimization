@@ -221,7 +221,7 @@ def _add_set_of_kpi_constraints(search_manager: MixedPrecisionSearchManager,
     for v in aggr_kpi:
         if isinstance(v, float):
             if v > target_kpi_value:
-                Logger.critical(f"The model can't be quantized to satisfy target KPI {target.value} with value {target_kpi_value}")
+                Logger.critical(f"The model can't be quantized to satisfy target KPI {target.value} with value {target_kpi_value}")  # pragma: no cover
         else:
             lp_problem += v <= target_kpi_value
 

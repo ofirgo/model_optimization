@@ -175,6 +175,48 @@ class MixedPercisionSearchKPI2BitsAvgTest(MixedPercisionBaseTest):
             "final weights and activation memory sum should be equal to total memory.")
 
 
+class MixedPercisionSearchActivationKPINonConfNodesTest(MixedPercisionBaseTest):
+    def __init__(self, unit_test):
+        super().__init__(unit_test)
+        # Total KPI for weights in 2 bit avg and non-configurable activation in 8 bit
+        self.target_total_kpi = KPI(weights_memory=17920 * 2 / 8, activation_memory=5408)
+
+    def get_kpi(self):
+        return self.target_total_kpi
+
+    def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
+        # No need to verify quantization configuration here since this test is similar to other tests we have,
+        # we're only interested in the KPI
+        self.unit_test.assertTrue(quantization_info.final_kpi.activation_memory <=
+                                  self.target_total_kpi.activation_memory)
+        self.unit_test.assertTrue(
+            quantization_info.final_kpi.weights_memory + quantization_info.final_kpi.activation_memory ==
+            quantization_info.final_kpi.total_memory,
+            "Running weights mixed-precision with unconstrained KPI, "
+            "final weights and activation memory sum should be equal to total memory.")
+
+
+class MixedPercisionSearchTotalKPINonConfNodesTest(MixedPercisionBaseTest):
+    def __init__(self, unit_test):
+        super().__init__(unit_test)
+        # Total KPI for weights in 2 bit avg and non-configurable activation in 8 bit
+        self.target_total_kpi = KPI(total_memory=17920 * 2 / 8 + 5408)
+
+    def get_kpi(self):
+        return self.target_total_kpi
+
+    def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
+        # No need to verify quantization configuration here since this test is similar to other tests we have,
+        # we're only interested in the KPI
+        self.unit_test.assertTrue(quantization_info.final_kpi.total_memory <= self.target_total_kpi.total_memory)
+        self.unit_test.assertTrue(
+            quantization_info.final_kpi.weights_memory + quantization_info.final_kpi.activation_memory ==
+            quantization_info.final_kpi.total_memory,
+            "Running weights mixed-precision with unconstrained KPI, "
+            "final weights and activation memory sum should be equal to total memory.")
+
+
+
 class MixedPercisionDepthwiseTest(MixedPercisionBaseTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
