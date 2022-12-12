@@ -25,7 +25,6 @@ from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import 
 from model_compression_toolkit.core.common.mixed_precision.mixed_precision_quantization_config import \
     MixedPrecisionQuantizationConfig
 from model_compression_toolkit.core.common.user_info import UserInformation
-from tests.common_tests.helpers.tensors_compare import cosine_similarity
 from tests.keras_tests.tpc_keras import generate_activation_mp_tpc_keras
 
 keras = tf.keras
@@ -429,9 +428,7 @@ class MixedPrecisionActivationMultipleInputsTest(MixedPrecisionActivationBaseTes
         x3 = layers.Conv2D(32, 4)(inputs_3)
         x4 = layers.Conv2D(32, 4)(inputs_4)
         outputs = layers.Concatenate()([x1, x2, x3, x4])
-        # outputs = layers.Concatenate()([x1, x2, x3])
         model = keras.Model(inputs=[inputs_1, inputs_2, inputs_3, inputs_4], outputs=outputs)
-        # model = keras.Model(inputs=[inputs_1, inputs_2, inputs_3], outputs=outputs)
         return model
 
     def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
