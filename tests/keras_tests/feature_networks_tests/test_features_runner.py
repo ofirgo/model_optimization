@@ -114,7 +114,9 @@ from tests.keras_tests.feature_networks_tests.feature_networks.uniform_range_sel
     UniformRangeSelectionActivationTest
 from tests.keras_tests.feature_networks_tests.feature_networks.weights_mixed_precision_tests import \
     MixedPercisionSearchTest, MixedPercisionDepthwiseTest, \
-    MixedPercisionSearchKPI4BitsAvgTest, MixedPercisionSearchKPI2BitsAvgTest, MixedPrecisionActivationDisabled
+    MixedPercisionSearchKPI4BitsAvgTest, MixedPercisionSearchKPI2BitsAvgTest, MixedPrecisionActivationDisabled, \
+    MixedPercisionSearchLastLayerDistanceTest, MixedPercisionSearchActivationKPINonConfNodesTest, \
+    MixedPercisionSearchTotalKPINonConfNodesTest
 
 layers = tf.keras.layers
 
