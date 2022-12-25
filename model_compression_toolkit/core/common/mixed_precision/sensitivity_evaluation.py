@@ -210,7 +210,19 @@ class SensitivityEvaluation:
                                                              norm_weights=self.quant_config.norm_weights)
                 batch_ip_gradients.append(image_ip_gradients)
             grad_per_batch.append(np.mean(batch_ip_gradients, axis=0))
-        return np.mean(grad_per_batch, axis=0)
+
+        if not self.quant_config.log_norm:
+            return np.mean(grad_per_batch, axis=0)
+        else:
+            mean_jacobian_weights = np.mean(grad_per_batch, axis=0)
+            mean_jacobian_weights = np.where(mean_jacobian_weights != 0, mean_jacobian_weights,
+                                             np.partition(mean_jacobian_weights, 1)[1])
+            log_weights = np.log10(mean_jacobian_weights)
+
+            if self.quant_config.log_plus_one:
+                return 1 + ((log_weights - np.min(log_weights)) / (np.max(log_weights) - np.min(log_weights)))
+            else:
+                return (log_weights - np.min(log_weights)) / (np.max(log_weights) - np.min(log_weights))
 
     def _configure_bitwidths_model(self,
                                    model_mp: Any,
