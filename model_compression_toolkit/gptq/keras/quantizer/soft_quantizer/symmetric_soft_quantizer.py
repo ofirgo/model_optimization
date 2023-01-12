@@ -1,4 +1,4 @@
-# Copyright 2022 Sony Semiconductor Israel, Inc. All rights reserved.
+# Copyright 2023 Sony Semiconductor Israel, Inc. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,40 +15,58 @@
 import tensorflow as tf
 import numpy as np
 
-from model_compression_toolkit import GumbelConfig
 from model_compression_toolkit.gptq.keras.quantizer import quant_utils as qutils
-from model_compression_toolkit.gptq.keras.quantizer.gumbel_rounding.base_gumbel_rounding import GumbelRoundingBase, \
-    init_aux_var
 from tensorflow_model_optimization.python.core.quantization.keras.quantize_wrapper import QuantizeWrapper
 from tensorflow.python.framework.tensor_shape import TensorShape
-from model_compression_toolkit.core.common.defaultdict import DefaultDict
 from typing import Dict, Any, List
-from model_compression_toolkit.gptq.keras.quantizer.gumbel_rounding.gumbel_softmax import gumbel_softmax, ste_gumbel
-from model_compression_toolkit.core.common.constants import THRESHOLD, GUMBEL_MAX_ITER, MIN_THRESHOLD
+from model_compression_toolkit.core.common.constants import THRESHOLD, GUMBEL_MAX_ITER
 from model_compression_toolkit.gptq.common import gptq_constants
-from model_compression_toolkit.core.common.quantization.quantizers.quantizers_helpers import max_power_of_two
-from model_compression_toolkit.gptq.keras.quantizer.ste_rounding.symmetric_ste import symmetric_quantizer
+from model_compression_toolkit.core.keras.quantizer.base_quantizer import BaseTrainableQuantizer
 
 
-class SymmetricGumbelRounding(GumbelRoundingBase):
+class LinearTempDecay:
+    def __init__(self, t_max: int, rel_start_decay: float = 0.2, start_b: int = 20, end_b: int = 2):
+        self.t_max = t_max
+        self.start_decay = rel_start_decay * t_max
+        self.start_b = start_b
+        self.end_b = end_b
+
+    def __call__(self, t: int):
+        """
+        Cosine annealing scheduler for temperature b.
+
+        Args:
+            t: The current time step.
+
+        Returns: Scheduled temperature.
+
+        """
+
+        ind = tf.cast(t < self.start_decay, tf.float32)
+
+        rel_t = (t - self.start_decay) / (self.t_max - self.start_decay)
+
+        return self.start_b * ind + (1 - ind) * (
+                self.end_b + (self.start_b - self.end_b) * tf.math.maximum(0.0, (1 - rel_t)))
+
+
+class SymmetricSoftRounding(BaseTrainableQuantizer):
     """
-    Trainable constrained quantizer to quantize a layer inputs.
+    Trainable symmetric quantizer to optimize the rounding of the quantized values using soft quantization method.
     """
+
     PTQ_THRESHOLD = "_ptq_threshold"
     SCALE_PTQ = "_scale"
 
     def __init__(self, num_bits: int,
                  per_axis: bool,
                  signed: bool,
-                 power_of_two: bool,
                  quantization_parameter_learning: bool,
                  threshold_values: np.ndarray,
-                 gumbel_config: GumbelConfig,
                  quantization_axis: int = -1,
-                 max_lsbs_change_map: dict = DefaultDict({}, lambda: 1),
                  max_iteration: int = GUMBEL_MAX_ITER):
         """
-        Initialize a TrainableWeightQuantizer object with parameters to use
+        Initialize a SymmetricSoftRounding object with parameters to use
         for the quantization.
 
         Args:
@@ -56,27 +74,33 @@ class SymmetricGumbelRounding(GumbelRoundingBase):
             per_axis: Whether to quantize per-channel or per-tensor.
             signed: Signedness to use for the quantization range.
             threshold_values: Threshold to use for the quantization.
-            gumbel_config: A class with the gumbel rounding configurations.
             quantization_axis: Axis of tensor to use for the quantization.
-            power_of_two: Whether the threshold should be constrained or not.
-            max_lsbs_change_map: a mapping between number of bits to max lsb change.
-            max_iteration: The number of iteration of gptq.
         """
-        super().__init__(num_bits, per_axis, signed, True, power_of_two, quantization_parameter_learning,
-                         quantization_axis, gumbel_config,
-                         max_lsbs_change_map,
-                         max_iteration)
+
+        super().__init__()
+        self.max_iteration = max_iteration
+        self.num_bits = num_bits
+        self.per_axis = per_axis
+        self.signed = signed
+        self.quantization_parameter_learning = quantization_parameter_learning
+        self.quantization_axis = quantization_axis
         self.threshold_shape = np.asarray(threshold_values).shape
         self.threshold_values = np.reshape(np.asarray(threshold_values), [-1]) if self.per_axis else float(
             threshold_values)
         self.k_threshold = len(self.threshold_values) if self.per_axis else 1
+        self.gamma = -0.1
+        self.zeta = 1.1
+        self.beta = 2 / 3
+        self.quantizer_parameters = {}
+        self.linear_decay = LinearTempDecay((self.max_iteration * 1024) // 32)
 
     def build(self,
               tensor_shape: TensorShape,
               name: str,
               layer: QuantizeWrapper) -> Dict[str, tf.Variable]:
         """
-        Add min and max variables to layer.
+        Add variables to the quantizer.
+
         Args:
             tensor_shape: Tensor shape the quantizer quantize.
             name: Prefix of variables names.
@@ -86,6 +110,7 @@ class SymmetricGumbelRounding(GumbelRoundingBase):
         Returns:
             Dictionary of new variables.
         """
+
         super().build(tensor_shape, name, layer)
 
         if self.per_axis:
@@ -97,6 +122,12 @@ class SymmetricGumbelRounding(GumbelRoundingBase):
         else:
             reshape_shape = [self.k_threshold]
 
+        ar_iter = layer.add_weight(
+            name + gptq_constants.GPTQ_ITER,
+            shape=(),
+            initializer=tf.keras.initializers.Constant(0.0),
+            trainable=False)
+
         ptq_threshold_tensor = layer.add_weight(
             name + self.PTQ_THRESHOLD,
             shape=reshape_shape,
@@ -104,26 +135,25 @@ class SymmetricGumbelRounding(GumbelRoundingBase):
             trainable=False)
         ptq_threshold_tensor.assign(self.threshold_values.reshape(reshape_shape))
 
+        w = getattr(layer.layer, name)
         auxvar_tensor = layer.add_weight(
             name + gptq_constants.AUXVAR,
-            shape=[self.m, *self.w_shape],
+            shape=[*w.shape],
             initializer=tf.keras.initializers.Constant(0.0),
             trainable=True)
-        w = getattr(layer.layer, name)
 
-        q_error = w - symmetric_quantizer(w,
-                                          ptq_threshold_tensor,
-                                          num_bits=self.num_bits,
-                                          signed=True,
-                                          power_of_two=self.power_of_two)
+        delta = qutils.calculate_delta(ptq_threshold_tensor, self.num_bits, self.signed)
+        w_floor = tf.floor(w / delta)
+        rest = (w / delta) - w_floor  # rest of rounding [0, 1)
+        alpha = -qutils.safe_log((self.zeta - self.gamma) / (rest - self.gamma) - 1, 1e-16)  # => sigmoid(alpha) = rest
 
-        ceil_indicator = (q_error < 0).numpy().astype("int")  # Negative error means the choose point is rounded to ceil.
-        auxvar_tensor.assign(init_aux_var(ceil_indicator, self.w_shape, self.m))
+        auxvar_tensor.assign(alpha)
 
         self.quantizer_parameters.update({gptq_constants.AUXVAR: auxvar_tensor,
-                                          self.PTQ_THRESHOLD: ptq_threshold_tensor})
+                                          self.PTQ_THRESHOLD: ptq_threshold_tensor,
+                                          gptq_constants.GPTQ_ITER: ar_iter})
 
-        if self.quantization_parameter_learning and not self.power_of_two:
+        if self.quantization_parameter_learning:
             scale = layer.add_weight(
                 name + self.SCALE_PTQ,
                 shape=self.k_threshold,
@@ -135,14 +165,45 @@ class SymmetricGumbelRounding(GumbelRoundingBase):
 
     def get_quantization_variable(self) -> List[tf.Tensor]:
         """
-        This function return a list of quantizer parameters.
-        Returns: A list of the quantizer parameters
-
+        Returns: A list of the quantization parameters (if there are defined parameters for the quantizer).
         """
-        if self.quantization_parameter_learning and not self.power_of_two:
+
+        if self.quantization_parameter_learning:
             return [self.quantizer_parameters[self.SCALE_PTQ]]
         else:
             return []
+
+    def get_regularization(self):
+        st = self.get_soft_targets()
+        b = self.linear_decay(self.ar_iter.value())
+        return tf.reduce_sum(1 - tf.pow(tf.math.abs(st - .5) * 2, b))
+
+    def get_trainable_parameters(self) -> List[tf.Tensor]:
+        """
+        A function to get a list trainable of trainable parameters of the quantizer for GPTQ retraining
+
+        Returns:
+            A list of trainable Tensors
+
+        """
+        return [t for t in self.quantizer_parameters.values() if t.trainable]
+
+    def get_config(self) -> Dict[str, Any]:
+        """
+        Returns: Configuration of SymmetricSoftRounding.
+        """
+
+        return {
+            'num_bits': self.num_bits,
+            'per_axis': self.per_axis,
+        }
+
+    def get_soft_targets(self):
+        return qutils.clip(
+            tf.sigmoid(self.quantizer_parameters[gptq_constants.AUXVAR]) * (self.zeta - self.gamma) + self.gamma, 1, 0)
+
+    def get_aux_variable(self):
+        return self.quantizer_parameters[gptq_constants.AUXVAR]
 
     def __call__(self, inputs: tf.Tensor,
                  training: bool,
@@ -150,6 +211,7 @@ class SymmetricGumbelRounding(GumbelRoundingBase):
                  **kwargs: Dict[str, Any]):
         """
         Quantize a tensor.
+
         Args:
             inputs: Input tensor to quantize.
             training: Whether the graph is in training mode.
@@ -160,11 +222,9 @@ class SymmetricGumbelRounding(GumbelRoundingBase):
             The quantized tensor.
         """
 
-        auxvar = weights[gptq_constants.AUXVAR]
-        ar_iter = weights[gptq_constants.GPTQ_ITER]
+        self.ar_iter = weights[gptq_constants.GPTQ_ITER]
         ptq_threshold_tensor = weights[self.PTQ_THRESHOLD]
-        aux_index_shift = weights[gptq_constants.AUXSHIFT]
-        self.update_iteration(training, ar_iter)
+
         if self.per_axis:
             input_shape = inputs.shape
             n_axis = len(input_shape)
@@ -172,42 +232,42 @@ class SymmetricGumbelRounding(GumbelRoundingBase):
                 self.quantization_axis
             reshape_shape = [-1 if i == quantization_axis else 1 for i in range(n_axis)]
 
-            reshape_shape_aux_ind = [-1, *[1 for _ in range(n_axis)]]
+            ##########################################################
+            # Calculate soft rounding targets and optimized threshold
+            ##########################################################
+            ptq_threshold_tensor_hat = tf.reshape(ptq_threshold_tensor, reshape_shape)
+            aux_var = self.get_soft_targets()
+
             #####################################################
             # Gumbel Softmax
             #####################################################
             if training:
-                gumbel_scale = self.gumbel_scale if self.gumbel_scale_per_bitwidth is None \
-                    else self.gumbel_scale_per_bitwidth.get(self.num_bits, self.gumbel_scale)
-                p_t = gumbel_softmax(auxvar, self.tau, self.g_t, gumbel_scale=gumbel_scale)
+                self.ar_iter.assign_add(1.0)
             else:
-                p_t = gumbel_softmax(auxvar, self.minimal_temp, 0)
-                p_t = ste_gumbel(p_t)
-            self.p_t = p_t
-            #####################################################
-            # Calculate v hat and threshold hat
-            #####################################################
-            ptq_threshold_tensor_hat = tf.reshape(ptq_threshold_tensor, reshape_shape)
-            auxvar_hat = tf.reduce_sum(p_t * tf.reshape(aux_index_shift, reshape_shape_aux_ind), axis=0)
+                aux_var = tf.cast(weights[gptq_constants.AUXVAR] >= 0, tf.float32)
+
             #####################################################
             # Quantized Input
             #####################################################
-            q_tensor = qutils.rounding_symmetric_quantizer(inputs, auxvar_hat,
-                                                           ptq_threshold_tensor_hat,
-                                                           self.num_bits,
-                                                           self.signed,
-                                                           self.power_of_two)
-            if self.quantization_parameter_learning and not self.power_of_two:
+            q_tensor = qutils.rounding_symmetric_quantizer(input_tensor=inputs,
+                                                           auxvar_tensor=aux_var,
+                                                           threshold_tensor=ptq_threshold_tensor_hat,
+                                                           num_bits=self.num_bits,
+                                                           signed=self.signed,
+                                                           power_of_two=False)
+
+            if self.quantization_parameter_learning:
                 scale = tf.reshape(self.quantizer_parameters[self.SCALE_PTQ], reshape_shape)
                 q_tensor *= scale
 
             return q_tensor
         else:
-            return qutils.rounding_symmetric_quantizer(inputs, auxvar,
-                                                       ptq_threshold_tensor,
-                                                       self.num_bits,
-                                                       self.signed,
-                                                       self.power_of_two)
+            return qutils.rounding_symmetric_quantizer(input_tensor=inputs,
+                                                       auxvar_tensor=weights[gptq_constants.AUXVAR],
+                                                       threshold_tensor=ptq_threshold_tensor.value(),
+                                                       num_bits=self.num_bits,
+                                                       signed=self.signed,
+                                                       power_of_two=False)
 
     def get_quant_config(self, layer) -> Dict[str, np.ndarray]:
         """
@@ -222,14 +282,10 @@ class SymmetricGumbelRounding(GumbelRoundingBase):
 
         """
 
-        if self.power_of_two:
-            old_threshold = self.quantizer_parameters[self.PTQ_THRESHOLD]
-            old_threshold = max_power_of_two(old_threshold, MIN_THRESHOLD)
-        else:
-            old_threshold = self.quantizer_parameters[self.PTQ_THRESHOLD]
-            if self.quantization_parameter_learning:
-                scale = tf.reshape(self.quantizer_parameters[self.SCALE_PTQ], self.threshold_shape)
-                old_threshold = old_threshold * scale
-            old_threshold = old_threshold.numpy()
+        old_threshold = self.quantizer_parameters[self.PTQ_THRESHOLD]
+        if self.quantization_parameter_learning:
+            scale = tf.reshape(self.quantizer_parameters[self.SCALE_PTQ], self.threshold_shape)
+            old_threshold = old_threshold * scale
+        old_threshold = old_threshold.numpy()
         old_threshold = old_threshold.reshape(self.threshold_shape)
         return {THRESHOLD: old_threshold}

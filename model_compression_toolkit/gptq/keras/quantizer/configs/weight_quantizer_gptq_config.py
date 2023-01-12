@@ -20,7 +20,7 @@ import tensorflow as tf
 from packaging import version
 
 # As from Tensorflow 2.6, keras is a separate package and some classes should be imported differently.
-
+from model_compression_toolkit.gptq.keras.quantizer.soft_quantizer.symmetric_soft_quantizer import SymmetricSoftRounding
 
 if version.parse(tf.__version__) < version.parse("2.6"):
     from tensorflow.python.keras.layers import Layer
@@ -92,6 +92,15 @@ class WeightQuantizeConfig(BaseQuantizeConfig):
                                                                 max_lsbs_change_map=max_lsbs_change_map,
                                                                 max_iteration=gptq_config.n_epochs,
                                                                 gumbel_config=gptq_config.quantizer_config)
+            elif gptq_config.rounding_type == RoundingType.SoftQuantizer:
+                self.weight_quantizer = SymmetricSoftRounding(num_bits=num_bits,
+                                                              per_axis=len(
+                                                                  threshold_values.flatten()) > 1,
+                                                              threshold_values=threshold_values,
+                                                              signed=True,
+                                                              quantization_parameter_learning=gptq_config.quantization_parameters_learning,
+                                                              quantization_axis=weight_channel_axis,
+                                                              max_iteration=gptq_config.n_epochs)
             else:
                 common.Logger.error(
                     f"For quantization method {final_weights_quantization_cfg.weights_quantization_method}, GPTQ Rounding type {gptq_config.rounding_type} is not supported")

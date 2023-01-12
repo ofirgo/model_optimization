@@ -84,6 +84,24 @@ def get_gumbel_probability(fxp_model: Model) -> List[tf.Tensor]:
     return gumbel_prob_aux
 
 
+def get_soft_quantizer(fxp_model: Model) -> List[tf.Tensor]:
+    """
+    This function return the gumbel softmax probability of SoftRounding.
+
+    Args:
+        fxp_model: A model to be quantized with SoftRounding.
+
+    Returns: A list of tensors.
+
+    """
+    soft_prob_aux: List[tf.Tensor] = []
+    for layer in fxp_model.layers:
+        if isinstance(layer, QuantizeWrapper) and isinstance(
+                layer.quantize_config, WeightQuantizeConfig):
+            soft_prob_aux.append(layer.quantize_config.weight_quantizer.get_regularization())
+    return soft_prob_aux
+
+
 def get_weights_for_loss(fxp_model: Model) -> Tuple[List[list], List[list]]:
     """
     Get all float and quantized kernels for the GPTQ loss

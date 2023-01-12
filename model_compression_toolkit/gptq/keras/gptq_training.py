@@ -29,10 +29,10 @@ else:
 
 from model_compression_toolkit.core import common
 from model_compression_toolkit.gptq.common.gptq_training import GPTQTrainer
-from model_compression_toolkit.gptq.common.gptq_config import GradientPTQConfigV2
+from model_compression_toolkit.gptq.common.gptq_config import GradientPTQConfigV2, RoundingType
 from model_compression_toolkit.core.common import Graph
 from model_compression_toolkit.gptq.keras.graph_info import get_trainable_parameters, get_weights_for_loss, \
-    get_gumbel_probability
+    get_gumbel_probability, get_soft_quantizer
 from model_compression_toolkit.core.common.framework_info import FrameworkInfo
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 import numpy as np
@@ -98,7 +98,8 @@ class KerasGPTQTrainer(GPTQTrainer):
                                                                   flattened_bias_weights,
                                                                   trainable_quantization_parameters,
                                                                   temperature_weights)
-        self.has_params_to_train = np.sum([len(optimizer_params_tuple[1]) for optimizer_params_tuple in self.optimizer_with_param])>0
+        self.has_params_to_train = np.sum(
+            [len(optimizer_params_tuple[1]) for optimizer_params_tuple in self.optimizer_with_param]) > 0
 
         if self.float_user_info.input_scale != self.gptq_user_info.input_scale:
             common.Logger.error("Input scale mismatch between float and GPTQ networks")  # pragma: no cover
@@ -161,6 +162,14 @@ class KerasGPTQTrainer(GPTQTrainer):
                     gumbel_reg += entropy
                 gumbel_reg /= len(gumbel_prob)
                 loss_value += self.gptq_config.quantizer_config.gumbel_entropy_regularization * gumbel_reg
+
+            if self.gptq_config.rounding_type == RoundingType.SoftQuantizer:
+
+                soft_quant_list = get_soft_quantizer(self.fxp_model)
+                reg = 0
+                for sq in soft_quant_list:
+                    reg += sq
+                loss_value += self.gptq_config.quantizer_config.entropy_regularization * reg
 
         # Use the gradient tape to automatically retrieve
         # the gradients of the trainable variables with respect to the loss.

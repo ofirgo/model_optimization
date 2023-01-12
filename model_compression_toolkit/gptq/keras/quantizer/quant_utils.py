@@ -15,7 +15,39 @@
 
 import tensorflow as tf
 from model_compression_toolkit.core.common.constants import MIN_THRESHOLD
-from typing import Tuple
+from typing import Tuple, Any
+
+
+def rounding_symmetric_quantizer(input_tensor: tf.Tensor,
+                                 auxvar_tensor: tf.Variable,
+                                 threshold_tensor: tf.Tensor,
+                                 num_bits: int,
+                                 signed: bool,
+                                 power_of_two: bool) -> tf.Tensor:
+    """
+    Quantize a tensor symmetrically with maximum LSBs shift.
+
+    Args:
+        input_tensor: Tensor to quantize. values of this tensor are not changed during gptq.
+        auxvar_tensor: Tensor that manifests the bit shift the weight due to gptq.
+        threshold_tensor: Tensor with values to compute the threshold.
+        num_bits: Num of bits to use.
+        signed: Signedness of the quantization range.
+        power_of_two: Whether the threshold should be constrained or not.
+
+    Returns:
+        A quantized tensor.
+    """
+
+    if power_of_two:
+        max_tensor = power_of_two_max(threshold_tensor)
+    delta = calculate_delta(threshold_tensor, num_bits, signed)
+    input_tensor = tf.stop_gradient(input_tensor)
+    input_tensor_int = tf.floor(input_tensor / delta)
+    tensor_q = input_tensor_int + auxvar_tensor
+    min_int = -int(signed) * (2 ** (num_bits - int(signed)))
+    max_int = (2 ** (num_bits - int(signed))) - 1
+    return delta * clip(tensor_q, max_val=max_int, min_val=min_int)
 
 
 def ste_ceil(x: tf.Tensor) -> tf.Tensor:
@@ -101,6 +133,20 @@ def clip(x: [tf.Tensor, tf.Variable], max_val=1, min_val=None) -> tf.Tensor:
     """
     min_val = -max_val if min_val is None else min_val
     return tf.math.minimum(tf.math.maximum(x, min_val), max_val)
+
+
+def safe_log(x: tf.Tensor, eps: float) -> tf.Tensor:
+    """
+    Computes log function of x unless x is smaller than some small value, so the log function would not fail.
+
+    Args:
+        x: input variable.
+        eps: limit value.
+
+    Returns: log of x where x > eps, else, log of eps.
+
+    """
+    return tf.math.log(tf.maximum(x, eps))
 
 
 def fix_range_to_include_zero(range_min: tf.Tensor,

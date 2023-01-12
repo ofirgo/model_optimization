@@ -36,6 +36,25 @@ class RoundingType(Enum):
     """
     STE = 0
     GumbelRounding = 1
+    SoftQuantizer = 2
+
+
+class SoftQuantizerConfig(object):
+    """
+    Configuration to use for quantization with Soft Rounding.
+    """
+
+    def __init__(self,
+                 entropy_regularization: float = 0.01):
+        """
+        Initialize a GumbelConfig.
+
+
+        Args:
+            entropy_regularization (float): A floating point number that defines the gumbel entropy regularization factor.
+        """
+
+        self.entropy_regularization = entropy_regularization
 
 
 class GumbelConfig(object):
@@ -94,7 +113,7 @@ class GradientPTQConfig:
                  use_jac_based_weights: bool = True,
                  num_samples_for_loss: int = 16,
                  norm_weights: bool = False,
-                 quantizer_config: GumbelConfig = GumbelConfig(),
+                 quantizer_config: Any = GumbelConfig(),
                  optimizer_quantization_parameter: Any = None,
                  optimizer_bias: Any = None,
                  log_norm: bool = True,
@@ -180,7 +199,7 @@ class GradientPTQConfigV2(GradientPTQConfig):
                  use_jac_based_weights: bool = True,
                  num_samples_for_loss: int = 16,
                  norm_weights: bool = False,
-                 quantizer_config: GumbelConfig = GumbelConfig(),
+                 quantizer_config: Any = GumbelConfig(),
                  optimizer_quantization_parameter: Any = None,
                  optimizer_bias: Any = None,
                  log_norm: bool = True,
