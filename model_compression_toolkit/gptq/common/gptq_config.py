@@ -50,8 +50,8 @@ class SoftQuantizerConfig(object):
         """
         Initialize a GumbelConfig.
 
-
         Args:
+            num_batches: Number of batches for training.
             entropy_regularization (float): A floating point number that defines the gumbel entropy regularization factor.
         """
 
@@ -108,18 +108,19 @@ class GradientPTQConfig:
                  train_bias: bool = True,
                  quantization_parameters_learning: bool = False,
                  sam_optimization: bool = False,
-                 rounding_type: RoundingType = RoundingType.GumbelRounding,
+                 rounding_type: RoundingType = RoundingType.SoftQuantizer,
                  rho: float = 0.01,
                  lsb_change_per_bit_width: dict = DefaultDict(MAX_LSBS_CHANGE_MAP, lambda: 1),
                  eps: float = 1e-6,
                  use_jac_based_weights: bool = True,
                  num_samples_for_loss: int = 16,
                  norm_weights: bool = False,
-                 quantizer_config: Any = GumbelConfig(),
+                 quantizer_config: Any = None,
                  optimizer_quantization_parameter: Any = None,
                  optimizer_bias: Any = None,
                  log_norm: bool = True,
-                 weights_n_iter: int = 50):
+                 weights_n_iter: int = 50,
+                 scaled_hessian_weights: bool = False):
         """
         Initialize a GradientPTQConfig.
 
@@ -146,6 +147,7 @@ class GradientPTQConfig:
             optimizer_bias (Any): Optimizer to override the rest optimizerfor bias.
             log_norm (bool): Whether to use log normalization to the GPTQ Jacobian-based weights.
             weights_n_iter (int): Number of random iterations to run Jacobian approximation for GPTQ weights.
+            scaled_hessian_weights (bool): Whether to scale the hessian weights in log normalization.
 
         """
         self.n_iter = n_iter
@@ -163,13 +165,19 @@ class GradientPTQConfig:
         self.use_jac_based_weights = use_jac_based_weights
         self.num_samples_for_loss = num_samples_for_loss
         self.norm_weights = norm_weights
-        if not isinstance(quantizer_config, GumbelConfig) and self.is_gumbel:
+
+        if self.is_gumbel and (quantizer_config is None or not isinstance(quantizer_config, GumbelConfig)):
             common.Logger.error("Please use GumbelConfig as quantizer config when using Gumbel Rounding")
+        if rounding_type == RoundingType.SoftQuantizer and (quantizer_config is None
+                                                            or not isinstance(quantizer_config, SoftQuantizerConfig)):
+            common.Logger.error("Please use SoftQuantizerConfig as quantizer config when using Soft Rounding")
         self.quantizer_config = quantizer_config
+
         self.optimizer_quantization_parameter = optimizer_quantization_parameter
         self.optimizer_bias = optimizer_bias
         self.log_norm = log_norm
         self.weights_n_iter = weights_n_iter
+        self.scaled_hessian_weights = scaled_hessian_weights
 
     @property
     def is_gumbel(self) -> bool:
@@ -255,9 +263,9 @@ class GradientPTQConfigV2(GradientPTQConfig):
                          optimizer_quantization_parameter=optimizer_quantization_parameter,
                          optimizer_bias=optimizer_bias,
                          log_norm=log_norm,
-                         weights_n_iter=weights_n_iter)
+                         weights_n_iter=weights_n_iter,
+                         scaled_hessian_weights=scaled_hessian_weights)
         self.n_epochs = n_epochs
-        self.scaled_hessian_weights = scaled_hessian_weights
 
     @classmethod
     def from_v1(cls, n_ptq_iter: int, config_v1: GradientPTQConfig):

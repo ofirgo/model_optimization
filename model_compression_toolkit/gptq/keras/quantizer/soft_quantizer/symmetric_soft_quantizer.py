@@ -15,25 +15,40 @@
 import tensorflow as tf
 import numpy as np
 
+from model_compression_toolkit.gptq.common.gptq_constants import PTQ_THRESHOLD, SCALE_PTQ, GPTQ_MAX_ITER
 from model_compression_toolkit.gptq.keras.quantizer import quant_utils as qutils
 from tensorflow_model_optimization.python.core.quantization.keras.quantize_wrapper import QuantizeWrapper
 from tensorflow.python.framework.tensor_shape import TensorShape
 from typing import Dict, Any, List
-from model_compression_toolkit.core.common.constants import THRESHOLD, GUMBEL_MAX_ITER
+from model_compression_toolkit.core.common.constants import THRESHOLD
 from model_compression_toolkit.gptq.common import gptq_constants
 from model_compression_toolkit.core.keras.quantizer.base_quantizer import BaseTrainableQuantizer
 
 
 class LinearTempDecay:
+    """
+    Annealing process for the soft quantizer regularization temperature term.
+    """
+
     def __init__(self, t_max: int, rel_start_decay: float = 0.2, start_b: int = 20, end_b: int = 2):
+        """
+        Initializes a LinearTempDecay object.
+
+        Args:
+            t_max: maximal time step.
+            rel_start_decay: Decay step size at the beginning of the process.
+            start_b: Starting value of the regularization term.
+            end_b: Target value of the regularization term.
+        """
+        # TODO: define constant to default optimization values once refactoring GPTQ quantizers
         self.t_max = t_max
         self.start_decay = rel_start_decay * t_max
         self.start_b = start_b
         self.end_b = end_b
 
-    def __call__(self, t: int):
+    def __call__(self, t: int) -> float:
         """
-        Cosine annealing scheduler for temperature b.
+        Cosine annealing scheduler for soft quantizer regularization temperature term.
 
         Args:
             t: The current time step.
@@ -55,9 +70,6 @@ class SymmetricSoftRounding(BaseTrainableQuantizer):
     Trainable symmetric quantizer to optimize the rounding of the quantized values using soft quantization method.
     """
 
-    PTQ_THRESHOLD = "_ptq_threshold"
-    SCALE_PTQ = "_scale"
-
     def __init__(self, num_bits: int,
                  per_axis: bool,
                  signed: bool,
@@ -65,7 +77,7 @@ class SymmetricSoftRounding(BaseTrainableQuantizer):
                  quantization_parameter_learning: bool,
                  threshold_values: np.ndarray,
                  quantization_axis: int = -1,
-                 max_iteration: int = GUMBEL_MAX_ITER):
+                 max_iteration: int = GPTQ_MAX_ITER):
         """
         Initialize a SymmetricSoftRounding object with parameters to use
         for the quantization.
@@ -90,6 +102,7 @@ class SymmetricSoftRounding(BaseTrainableQuantizer):
         self.threshold_values = np.reshape(np.asarray(threshold_values), [-1]) if self.per_axis else float(
             threshold_values)
         self.k_threshold = len(self.threshold_values) if self.per_axis else 1
+        # TODO: define constant to default optimization values once refactoring GPTQ quantizers
         self.gamma = -0.1
         self.zeta = 1.1
         self.beta = 2 / 3
@@ -131,7 +144,7 @@ class SymmetricSoftRounding(BaseTrainableQuantizer):
             trainable=False)
 
         ptq_threshold_tensor = layer.add_weight(
-            name + self.PTQ_THRESHOLD,
+            name + PTQ_THRESHOLD,
             shape=reshape_shape,
             initializer=tf.keras.initializers.Constant(1.0),
             trainable=False)
@@ -152,16 +165,16 @@ class SymmetricSoftRounding(BaseTrainableQuantizer):
         auxvar_tensor.assign(alpha)
 
         self.quantizer_parameters.update({gptq_constants.AUXVAR: auxvar_tensor,
-                                          self.PTQ_THRESHOLD: ptq_threshold_tensor,
+                                          PTQ_THRESHOLD: ptq_threshold_tensor,
                                           gptq_constants.GPTQ_ITER: ar_iter})
 
         if self.quantization_parameter_learning:
             scale = layer.add_weight(
-                name + self.SCALE_PTQ,
+                name + SCALE_PTQ,
                 shape=self.k_threshold,
                 initializer=tf.keras.initializers.Constant(1.0),
                 trainable=True)
-            self.quantizer_parameters.update({self.SCALE_PTQ: scale})
+            self.quantizer_parameters.update({SCALE_PTQ: scale})
 
         return self.quantizer_parameters
 
@@ -171,7 +184,7 @@ class SymmetricSoftRounding(BaseTrainableQuantizer):
         """
 
         if self.quantization_parameter_learning:
-            return [self.quantizer_parameters[self.SCALE_PTQ]]
+            return [self.quantizer_parameters[SCALE_PTQ]]
         else:
             return []
 
@@ -225,7 +238,7 @@ class SymmetricSoftRounding(BaseTrainableQuantizer):
         """
 
         self.ar_iter = weights[gptq_constants.GPTQ_ITER]
-        ptq_threshold_tensor = weights[self.PTQ_THRESHOLD]
+        ptq_threshold_tensor = weights[PTQ_THRESHOLD]
 
         if self.per_axis:
             input_shape = inputs.shape
@@ -259,7 +272,7 @@ class SymmetricSoftRounding(BaseTrainableQuantizer):
                                                            power_of_two=False)
 
             if self.quantization_parameter_learning:
-                scale = tf.reshape(self.quantizer_parameters[self.SCALE_PTQ], reshape_shape)
+                scale = tf.reshape(self.quantizer_parameters[SCALE_PTQ], reshape_shape)
                 q_tensor *= scale
 
             return q_tensor
@@ -284,9 +297,9 @@ class SymmetricSoftRounding(BaseTrainableQuantizer):
 
         """
 
-        old_threshold = self.quantizer_parameters[self.PTQ_THRESHOLD]
+        old_threshold = self.quantizer_parameters[PTQ_THRESHOLD]
         if self.quantization_parameter_learning:
-            scale = tf.reshape(self.quantizer_parameters[self.SCALE_PTQ], self.threshold_shape)
+            scale = tf.reshape(self.quantizer_parameters[SCALE_PTQ], self.threshold_shape)
             old_threshold = old_threshold * scale
         old_threshold = old_threshold.numpy()
         old_threshold = old_threshold.reshape(self.threshold_shape)

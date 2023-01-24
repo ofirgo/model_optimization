@@ -32,7 +32,7 @@ from model_compression_toolkit.gptq.common.gptq_training import GPTQTrainer
 from model_compression_toolkit.gptq.common.gptq_config import GradientPTQConfigV2, RoundingType
 from model_compression_toolkit.core.common import Graph
 from model_compression_toolkit.gptq.keras.graph_info import get_trainable_parameters, get_weights_for_loss, \
-    get_gumbel_probability, get_soft_quantizer
+    get_gumbel_probability, get_soft_rounding_reg
 from model_compression_toolkit.core.common.framework_info import FrameworkInfo
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 import numpy as np
@@ -165,7 +165,7 @@ class KerasGPTQTrainer(GPTQTrainer):
 
             if self.gptq_config.rounding_type == RoundingType.SoftQuantizer:
 
-                soft_quant_list = get_soft_quantizer(self.fxp_model)
+                soft_quant_list = get_soft_rounding_reg(self.fxp_model)
                 reg = 0
                 for sq in soft_quant_list:
                     reg += sq
