@@ -98,6 +98,7 @@ class WeightQuantizeConfig(BaseQuantizeConfig):
                                                                   threshold_values.flatten()) > 1,
                                                               threshold_values=threshold_values,
                                                               signed=True,
+                                                              num_batches=gptq_config.quantizer_config.num_batches,
                                                               quantization_parameter_learning=gptq_config.quantization_parameters_learning,
                                                               quantization_axis=weight_channel_axis,
                                                               max_iteration=gptq_config.n_epochs)

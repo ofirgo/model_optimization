@@ -45,6 +45,7 @@ class SoftQuantizerConfig(object):
     """
 
     def __init__(self,
+                 num_batches: int,
                  entropy_regularization: float = 0.01):
         """
         Initialize a GumbelConfig.
@@ -54,6 +55,7 @@ class SoftQuantizerConfig(object):
             entropy_regularization (float): A floating point number that defines the gumbel entropy regularization factor.
         """
 
+        self.num_batches = num_batches
         self.entropy_regularization = entropy_regularization
 
 
@@ -203,7 +205,8 @@ class GradientPTQConfigV2(GradientPTQConfig):
                  optimizer_quantization_parameter: Any = None,
                  optimizer_bias: Any = None,
                  log_norm: bool = True,
-                 weights_n_iter: int = 50):
+                 weights_n_iter: int = 50,
+                 scaled_hessian_weights: bool = False):
         """
         Initialize a GradientPTQConfigV2.
 
@@ -230,7 +233,7 @@ class GradientPTQConfigV2(GradientPTQConfig):
             optimizer_bias (Any): Optimizer to override the rest optimizerfor bias.
             log_norm (bool): Whether to use log normalization to the GPTQ Jacobian-based weights.
             weights_n_iter (int): Number of random iterations to run Jacobian approximation for GPTQ weights.
-
+            scaled_hessian_weights (bool): Whether to scale the hessian weights in log normalization.
         """
 
         super().__init__(n_iter=None,
@@ -254,6 +257,7 @@ class GradientPTQConfigV2(GradientPTQConfig):
                          log_norm=log_norm,
                          weights_n_iter=weights_n_iter)
         self.n_epochs = n_epochs
+        self.scaled_hessian_weights = scaled_hessian_weights
 
     @classmethod
     def from_v1(cls, n_ptq_iter: int, config_v1: GradientPTQConfig):

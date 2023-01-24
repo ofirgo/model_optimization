@@ -61,6 +61,7 @@ class SymmetricSoftRounding(BaseTrainableQuantizer):
     def __init__(self, num_bits: int,
                  per_axis: bool,
                  signed: bool,
+                 num_batches: int,
                  quantization_parameter_learning: bool,
                  threshold_values: np.ndarray,
                  quantization_axis: int = -1,
@@ -73,6 +74,7 @@ class SymmetricSoftRounding(BaseTrainableQuantizer):
             num_bits: Number of bits to use for the quantization.
             per_axis: Whether to quantize per-channel or per-tensor.
             signed: Signedness to use for the quantization range.
+            num_batches: Number of batches for training.
             threshold_values: Threshold to use for the quantization.
             quantization_axis: Axis of tensor to use for the quantization.
         """
@@ -92,7 +94,7 @@ class SymmetricSoftRounding(BaseTrainableQuantizer):
         self.zeta = 1.1
         self.beta = 2 / 3
         self.quantizer_parameters = {}
-        self.linear_decay = LinearTempDecay((self.max_iteration * 1024) // 32)
+        self.linear_decay = LinearTempDecay(self.max_iteration * num_batches)
 
     def build(self,
               tensor_shape: TensorShape,
