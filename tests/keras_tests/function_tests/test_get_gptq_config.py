@@ -17,8 +17,9 @@ import unittest
 from typing import List
 
 import numpy as np
-from model_compression_toolkit import get_keras_gptq_config, keras_post_training_quantization, keras_gradient_post_training_quantization_experimental, \
-    QuantizationConfig, QuantizationErrorMethod, GradientPTQConfig, RoundingType, CoreConfig
+from model_compression_toolkit import get_keras_gptq_config, keras_post_training_quantization, \
+    keras_gradient_post_training_quantization_experimental, \
+    QuantizationConfig, QuantizationErrorMethod, GradientPTQConfig, RoundingType, CoreConfig, SoftQuantizerConfig
 import tensorflow as tf
 from model_compression_toolkit.gptq.keras.gptq_loss import multiple_tensors_mse_loss
 import model_compression_toolkit as mct
@@ -76,6 +77,11 @@ class TestGetGPTQConfig(unittest.TestCase):
                                                  optimizer_rest=tf.keras.optimizers.Adam(), train_bias=True,
                                                  loss=multiple_tensors_mse_loss,
                                                  rounding_type=RoundingType.GumbelRounding, quantizer_config=gc),
+                               GradientPTQConfig(1, optimizer=tf.keras.optimizers.Adam(),
+                                                 optimizer_rest=tf.keras.optimizers.Adam(), train_bias=True,
+                                                 loss=multiple_tensors_mse_loss,
+                                                 rounding_type=RoundingType.SoftQuantizer,
+                                                 quantizer_config=SoftQuantizerConfig(num_batches=1)),
                                ]
         gptqv2_configurations = [get_keras_gptq_config(n_epochs=1),
                                  get_keras_gptq_config(n_epochs=1),

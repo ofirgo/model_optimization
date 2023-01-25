@@ -16,7 +16,7 @@ import tensorflow as tf
 import numpy as np
 
 from model_compression_toolkit import GumbelConfig
-from model_compression_toolkit.gptq.common.gptq_constants import PTQ_THRESHOLD, SCALE_PTQ
+from model_compression_toolkit.gptq.common.gptq_constants import PTQ_THRESHOLD, SCALE_PTQ, GPTQ_MAX_ITER
 from model_compression_toolkit.gptq.keras.quantizer import quant_utils as qutils
 from model_compression_toolkit.gptq.keras.quantizer.gumbel_rounding.base_gumbel_rounding import GumbelRoundingBase, \
     init_aux_var
@@ -25,7 +25,7 @@ from tensorflow.python.framework.tensor_shape import TensorShape
 from model_compression_toolkit.core.common.defaultdict import DefaultDict
 from typing import Dict, Any, List
 from model_compression_toolkit.gptq.keras.quantizer.gumbel_rounding.gumbel_softmax import gumbel_softmax, ste_gumbel
-from model_compression_toolkit.core.common.constants import THRESHOLD, GPTQ_MAX_ITER, MIN_THRESHOLD
+from model_compression_toolkit.core.common.constants import THRESHOLD, MIN_THRESHOLD
 from model_compression_toolkit.gptq.common import gptq_constants
 from model_compression_toolkit.core.common.quantization.quantizers.quantizers_helpers import max_power_of_two
 from model_compression_toolkit.gptq.keras.quantizer.ste_rounding.symmetric_ste import symmetric_quantizer

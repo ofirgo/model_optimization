@@ -20,7 +20,7 @@ import tensorflow as tf
 from tensorflow.keras.layers import PReLU, ELU
 
 import model_compression_toolkit as mct
-from model_compression_toolkit import QuantizationErrorMethod
+from model_compression_toolkit import QuantizationErrorMethod, GumbelConfig, SoftQuantizerConfig
 from tests.keras_tests.feature_networks_tests.feature_networks.activation_decomposition_test import \
     ActivationDecompositionTest
 from tests.keras_tests.feature_networks_tests.feature_networks.activation_relu_bound_to_power_of_2_test import \
@@ -521,20 +521,28 @@ class FeatureNetworkTest(unittest.TestCase):
         MultiInputsToNodeTest(self).run_test()
 
     def test_gptq(self, experimental_facade=False, experimental_exporter=False):
+        # TODO: need to modify and extend GPTQ tests (for different quantizer) when refactoring GPTQ
         GradientPTQTest(self).run_test(experimental_facade=experimental_facade,
                                        experimental_exporter=experimental_exporter)
-        GradientPTQNoTempLearningTest(self, is_gumbel=True).run_test(experimental_facade=experimental_facade,
-                                                                     experimental_exporter=experimental_exporter)
+        GradientPTQNoTempLearningTest(self, quantizer_config=GumbelConfig(temperature_learning=False)).run_test(
+            experimental_facade=experimental_facade,
+            experimental_exporter=experimental_exporter)
         GradientPTQWeightsUpdateTest(self).run_test(experimental_facade=experimental_facade,
                                                     experimental_exporter=experimental_exporter)
         GradientPTQLearnRateZeroTest(self).run_test(experimental_facade=experimental_facade,
                                                     experimental_exporter=experimental_exporter)
         GradientPTQWeightedLossTest(self).run_test(experimental_facade=experimental_facade,
                                                    experimental_exporter=experimental_exporter)
-        GradientPTQWeightsUpdateTest(self, is_gumbel=True, sam_optimization=True).run_test(
+        GradientPTQWeightsUpdateTest(self, quantizer_config=GumbelConfig(), sam_optimization=True).run_test(
             experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
-        GradientPTQLearnRateZeroTest(self, is_gumbel=True).run_test(experimental_facade=experimental_facade,
-                                                                    experimental_exporter=experimental_exporter)
+        GradientPTQLearnRateZeroTest(self, quantizer_config=GumbelConfig()).run_test(
+            experimental_facade=experimental_facade,
+            experimental_exporter=experimental_exporter)
+        GradientPTQWeightsUpdateTest(self, quantizer_config=SoftQuantizerConfig(num_batches=1)).run_test(
+            experimental_facade=experimental_facade, experimental_exporter=experimental_exporter)
+        GradientPTQLearnRateZeroTest(self, quantizer_config=SoftQuantizerConfig(num_batches=1)).run_test(
+            experimental_facade=experimental_facade,
+            experimental_exporter=experimental_exporter)
 
     # TODO: reuven - new experimental facade needs to be tested regardless the exporter.
     # def test_gptq_new_exporter(self):
@@ -551,8 +559,11 @@ class FeatureNetworkTest(unittest.TestCase):
     def test_gptq_conv_group_dilation(self):
         GradientPTQLearnRateZeroConvGroupDilationTest(self).run_test()
         GradientPTQWeightsUpdateConvGroupDilationTest(self).run_test()
-        GradientPTQLearnRateZeroConvGroupDilationTest(self, is_gumbel=True, sam_optimization=True).run_test()
-        GradientPTQWeightsUpdateConvGroupDilationTest(self, is_gumbel=True).run_test()
+        GradientPTQLearnRateZeroConvGroupDilationTest(self, quantizer_config=GumbelConfig(), sam_optimization=True).run_test()
+        GradientPTQWeightsUpdateConvGroupDilationTest(self, quantizer_config=GumbelConfig()).run_test()
+        GradientPTQLearnRateZeroConvGroupDilationTest(self, quantizer_config=SoftQuantizerConfig(num_batches=1)).run_test()
+        GradientPTQWeightsUpdateConvGroupDilationTest(self, quantizer_config=SoftQuantizerConfig(num_batches=1)).run_test()
+
 
     def test_split_conv_bug(self):
         SplitConvBugTest(self).run_test()
