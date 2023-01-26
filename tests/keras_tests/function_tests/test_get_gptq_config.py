@@ -17,9 +17,8 @@ import unittest
 from typing import List
 
 import numpy as np
-from model_compression_toolkit import get_keras_gptq_config, keras_post_training_quantization, \
-    keras_gradient_post_training_quantization_experimental, \
-    QuantizationConfig, QuantizationErrorMethod, GradientPTQConfig, RoundingType, CoreConfig, SoftQuantizerConfig
+from model_compression_toolkit import get_keras_gptq_config, keras_post_training_quantization, keras_gradient_post_training_quantization_experimental, \
+    QuantizationConfig, QuantizationErrorMethod, GradientPTQConfig, RoundingType, CoreConfig
 import tensorflow as tf
 from model_compression_toolkit.gptq.keras.gptq_loss import multiple_tensors_mse_loss
 import model_compression_toolkit as mct
@@ -63,29 +62,17 @@ class TestGetGPTQConfig(unittest.TestCase):
                                 QuantizationErrorMethod.MSE,
                                 weights_bias_correction=False)  # disable bias correction when working with GPTQ
         cc = CoreConfig(quantization_config=qc)
-        gc = mct.GumbelConfig(temperature_learning=True)
         gptq_configurations = [GradientPTQConfig(1, optimizer=tf.keras.optimizers.RMSprop(),
                                                  optimizer_rest=tf.keras.optimizers.RMSprop(), train_bias=True,
-                                                 sam_optimization=True, loss=multiple_tensors_mse_loss),
+                                                 loss=multiple_tensors_mse_loss),
                                GradientPTQConfig(1, optimizer=tf.keras.optimizers.Adam(),
                                                  optimizer_rest=tf.keras.optimizers.Adam(), train_bias=True,
-                                                 quantization_parameters_learning=True, loss=multiple_tensors_mse_loss),
-                               GradientPTQConfig(1, optimizer=tf.keras.optimizers.Adam(),
-                                                 optimizer_rest=tf.keras.optimizers.Adam(), train_bias=True,
-                                                 loss=multiple_tensors_mse_loss, quantizer_config=gc),
-                               GradientPTQConfig(1, optimizer=tf.keras.optimizers.Adam(),
-                                                 optimizer_rest=tf.keras.optimizers.Adam(), train_bias=True,
-                                                 loss=multiple_tensors_mse_loss,
-                                                 rounding_type=RoundingType.GumbelRounding, quantizer_config=gc),
-                               GradientPTQConfig(1, optimizer=tf.keras.optimizers.Adam(),
-                                                 optimizer_rest=tf.keras.optimizers.Adam(), train_bias=True,
-                                                 loss=multiple_tensors_mse_loss,
-                                                 rounding_type=RoundingType.SoftQuantizer,
-                                                 quantizer_config=SoftQuantizerConfig(num_batches=1)),
+                                                 loss=multiple_tensors_mse_loss),
                                ]
-        gptqv2_configurations = [get_keras_gptq_config(n_epochs=1),
-                                 get_keras_gptq_config(n_epochs=1),
-                                 get_keras_gptq_config(n_epochs=1, optimizer=tf.keras.optimizers.Adam())]
+
+        gptqv2_configurations = [get_keras_gptq_config(n_epochs=1, optimizer=tf.keras.optimizers.Adam())]
+
+
 
         for i, gptq_config in enumerate(gptq_configurations):
             keras_post_training_quantization(in_model=build_model(SHAPE[1:]),
@@ -93,11 +80,23 @@ class TestGetGPTQConfig(unittest.TestCase):
                                              n_iter=1,
                                              quant_config=qc,
                                              gptq_config=gptq_config)
+
         for i, gptq_config in enumerate(gptqv2_configurations):
             keras_gradient_post_training_quantization_experimental(in_model=build_model(SHAPE[1:]),
                                                                    representative_data_gen=random_datagen_experimental,
                                                                    core_config=cc,
                                                                    gptq_config=gptq_config)
+
+    def test_get_keras_unsupported_configs_raises(self):
+
+        with self.assertRaises(Exception) as e:
+            GradientPTQConfig(1,
+                              optimizer=tf.keras.optimizers.Adam(),
+                              optimizer_rest=tf.keras.optimizers.Adam(),
+                              train_bias=True,
+                              quantization_parameters_learning=True,
+                              loss=multiple_tensors_mse_loss)
+        self.assertEqual('Quantization parameters learning is not supported with STE rounding.', str(e.exception))
 
 
 if __name__ == '__main__':

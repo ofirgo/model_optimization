@@ -43,6 +43,8 @@ if found_tf:
     from tests.keras_tests.function_tests.test_quantization_configurations import TestQuantizationConfigurations
     from tests.keras_tests.function_tests.test_tensorboard_writer import TestFileLogger
     from tests.keras_tests.function_tests.test_lut_quanitzer_params import TestLUTQuantizerParams
+    from tests.keras_tests.function_tests.test_lut_activation_quanitzer_params import TestLUTActivationsQuantizerParams
+    from tests.keras_tests.function_tests.test_lut_activation_quanitzer_fake_quant import TestLUTQuantizerFakeQuant
     from tests.keras_tests.function_tests.test_lp_search_bitwidth import TestLpSearchBitwidth, \
         TestSearchBitwidthConfiguration
     from tests.keras_tests.function_tests.test_bn_info_collection import TestBNInfoCollection
@@ -66,6 +68,10 @@ if found_tf:
     from tests.keras_tests.function_tests.test_set_layer_to_bitwidth import TestKerasSetLayerToBitwidth
     from tests.keras_tests.function_tests.test_export_keras_fully_quantized_model import TestKerasFakeQuantExporter
     from tests.keras_tests.function_tests.test_kpi_data import TestKPIData
+    from tests.keras_tests.function_tests.test_get_gptq_config import TestGetGPTQConfig
+    from tests.keras_tests.function_tests.test_gptq_loss_functions import TestGPTQLossFunctions
+    from tests.quantizers_infrastructure_tests.keras_tests.test_keras_quantization_infrastructure_runner import \
+        KerasInfrastructureTest
 
 if found_pytorch:
     from tests.pytorch_tests.layer_tests.test_layers_runner import LayerTest as TorchLayerTest
@@ -73,6 +79,8 @@ if found_pytorch:
     # from tests.pytorch_tests.model_tests.test_models_runner import ModelTest
     from tests.pytorch_tests.function_tests.test_function_runner import FunctionTestRunner
     from tests.pytorch_tests.function_tests.test_pytorch_tp_model import TestPytorchTPModel
+    from tests.quantizers_infrastructure_tests.pytorch_tests.test_pytorch_quantization_infrastructure_runner import \
+        PytorchInfrastructureTest
 
 if __name__ == '__main__':
     # -----------------  Load all the test cases
@@ -97,6 +105,8 @@ if __name__ == '__main__':
         suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestSearchBitwidthConfiguration))
         suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestBNInfoCollection))
         suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestLUTQuantizerParams))
+        suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestLUTActivationsQuantizerParams))
+        suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestLUTQuantizerFakeQuant))
         suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestGraphReading))
         suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestTFLiteExport))
         suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestSymmetricThresholdSelectionWeights))
@@ -112,6 +122,9 @@ if __name__ == '__main__':
         suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestKerasFakeQuantExporter))
         suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestKPIData))
         suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestFileLogger))
+        suiteList.append(unittest.TestLoader().loadTestsFromTestCase(KerasInfrastructureTest))
+        suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestGetGPTQConfig))
+        suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestGPTQLossFunctions))
 
         # Keras test layers are supported in TF2.6 or higher versions
         if version.parse(tf.__version__) >= version.parse("2.6"):
@@ -130,6 +143,7 @@ if __name__ == '__main__':
         # suiteList.append(unittest.TestLoader().loadTestsFromName('test_resnet18', ModelTest))
         # suiteList.append(unittest.TestLoader().loadTestsFromName('test_shufflenet_v2_x1_0', ModelTest))
         suiteList.append(unittest.TestLoader().loadTestsFromTestCase(TestPytorchTPModel))
+        suiteList.append(unittest.TestLoader().loadTestsFromTestCase(PytorchInfrastructureTest))
     # ----------------   Join them together and run them
     comboSuite = unittest.TestSuite(suiteList)
     unittest.TextTestRunner(verbosity=0).run(comboSuite)
