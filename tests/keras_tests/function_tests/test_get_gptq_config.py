@@ -115,29 +115,40 @@ class TestGetGPTQConfig(unittest.TestCase):
                                                        optimizer=tf.keras.optimizers.Adam())]
 
         pot_tp = generate_test_tp_model({'weights_quantization_method': QuantizationMethod.POWER_OF_TWO})
-        pot_weights_tpc = generate_keras_tpc(name="gptq_config_test", tp_model=pot_tp)
+        pot_weights_tpc = generate_keras_tpc(name="gptq_pot_config_test", tp_model=pot_tp)
 
         symmetric_tp = generate_test_tp_model({'weights_quantization_method': QuantizationMethod.SYMMETRIC})
-        symmetric_weights_tpc = generate_keras_tpc(name="gptq_config_test", tp_model=symmetric_tp)
+        symmetric_weights_tpc = generate_keras_tpc(name="gptq_symmetric_config_test", tp_model=symmetric_tp)
 
-        tpcs = [pot_weights_tpc, symmetric_weights_tpc]
+        for i, gptq_config in enumerate(gptq_configurations):
+            keras_post_training_quantization(in_model=build_model(SHAPE[1:]),
+                                             representative_data_gen=random_datagen,
+                                             n_iter=1,
+                                             quant_config=qc,
+                                             gptq_config=gptq_config,
+                                             target_platform_capabilities=pot_weights_tpc)
 
-        for tpc in tpcs:
-            for i, gptq_config in enumerate(gptq_configurations):
-                keras_post_training_quantization(in_model=build_model(SHAPE[1:]),
-                                                 representative_data_gen=random_datagen,
-                                                 n_iter=1,
-                                                 quant_config=qc,
-                                                 gptq_config=gptq_config,
-                                                 target_platform_capabilities=tpc)
+        for i, gptq_config in enumerate(gptq_configurations):
+            keras_post_training_quantization(in_model=build_model(SHAPE[1:]),
+                                             representative_data_gen=random_datagen,
+                                             n_iter=1,
+                                             quant_config=qc,
+                                             gptq_config=gptq_config,
+                                             target_platform_capabilities=symmetric_weights_tpc)
 
-        for tpc in tpcs:
-            for i, gptq_config in enumerate(gptqv2_configurations):
-                keras_gradient_post_training_quantization_experimental(in_model=build_model(SHAPE[1:]),
-                                                                       representative_data_gen=random_datagen_experimental,
-                                                                       core_config=cc,
-                                                                       gptq_config=gptq_config,
-                                                                       target_platform_capabilities=tpc)
+        for i, gptq_config in enumerate(gptqv2_configurations):
+            keras_gradient_post_training_quantization_experimental(in_model=build_model(SHAPE[1:]),
+                                                                   representative_data_gen=random_datagen_experimental,
+                                                                   core_config=cc,
+                                                                   gptq_config=gptq_config,
+                                                                   target_platform_capabilities=pot_weights_tpc)
+
+        for i, gptq_config in enumerate(gptqv2_configurations):
+            keras_gradient_post_training_quantization_experimental(in_model=build_model(SHAPE[1:]),
+                                                                   representative_data_gen=random_datagen_experimental,
+                                                                   core_config=cc,
+                                                                   gptq_config=gptq_config,
+                                                                   target_platform_capabilities=symmetric_weights_tpc)
 
         tf.config.run_functions_eagerly(False)
 
