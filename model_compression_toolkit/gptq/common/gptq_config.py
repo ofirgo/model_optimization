@@ -149,7 +149,9 @@ class GradientPTQConfigV2(GradientPTQConfig):
                  optimizer_bias: Any = None,
                  log_norm: bool = True,
                  weights_n_iter: int = 50,
-                 quantizer_config: GPTQQuantizerConfig = SoftQuantizerConfig()):
+                 quantizer_config: GPTQQuantizerConfig = SoftQuantizerConfig(),
+                 qdrop = False,
+                 scaled_hessian = False):
         """
         Initialize a GradientPTQConfigV2.
 
@@ -196,6 +198,8 @@ class GradientPTQConfigV2(GradientPTQConfig):
                          weights_n_iter=weights_n_iter,
                          quantizer_config=quantizer_config)
         self.n_epochs = n_epochs
+        self.qdrop= qdrop
+        self.scaled_hessian = scaled_hessian
 
     @classmethod
     def from_v1(cls, n_ptq_iter: int, config_v1: GradientPTQConfig):

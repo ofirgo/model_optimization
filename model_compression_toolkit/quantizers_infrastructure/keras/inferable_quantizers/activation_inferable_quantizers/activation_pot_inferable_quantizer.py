@@ -38,7 +38,8 @@ if FOUND_TF:
         def __init__(self,
                      num_bits: int,
                      threshold: List[float],
-                     signed: bool):
+                     signed: bool,
+                     **kwargs):
             """
             Initialize the quantizer with the specified parameters.
 
@@ -51,7 +52,8 @@ if FOUND_TF:
             # quantization
             super(ActivationPOTInferableQuantizer, self).__init__(num_bits=num_bits,
                                                                   threshold=threshold,
-                                                                  signed=signed)
+                                                                  signed=signed,
+                                                                  **kwargs)
 
             is_threshold_pot = np.all([int(np.log2(x)) == np.log2(x) for x in self.threshold.flatten()])
             assert is_threshold_pot, f'Expected threshold to be power of 2 but is {self.threshold}'

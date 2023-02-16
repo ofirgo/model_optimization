@@ -153,7 +153,8 @@ class GPTQTrainer(ABC):
                 log_weights = np.log10(mean_jacobian_weights)
 
                 # To add scaling to the normalized weights replace return statement with the following line:
-                # return log_weights - np.min(log_weights) / (np.max(log_weights) - np.min(log_weights))
+                if self.gptq_config.scaled_hessian:
+                    return (log_weights - np.min(log_weights)) / (np.max(log_weights) - np.min(log_weights))
                 return log_weights - np.min(log_weights)
             else:
                 return np.mean(points_apprx_jacobians_weights, axis=0)

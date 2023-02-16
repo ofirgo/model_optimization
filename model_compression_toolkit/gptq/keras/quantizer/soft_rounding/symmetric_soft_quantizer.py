@@ -160,6 +160,7 @@ class SymmetricSoftRounding(BaseKerasGPTQTrainableQuantizer):
                            f"{MAX_ITERATIONS_DEFAULT} is used to set the temperature decay which may affect the results.")
 
         init_decay = MAX_ITERATIONS_DEFAULT if n_batches is None else n_epochs * n_batches
+        print(init_decay)
         self.linear_decay = LinearTempDecay(init_decay)
 
     def initialize_quantization(self,

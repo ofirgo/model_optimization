@@ -39,7 +39,8 @@ if FOUND_TF:
         def __init__(self,
                      num_bits: int,
                      threshold: List[float],
-                     signed: bool):
+                     signed: bool,
+                     **kwargs):
             """
             Initialize the quantizer with the specified parameters.
 
@@ -63,7 +64,8 @@ if FOUND_TF:
 
             super(ActivationSymmetricInferableQuantizer, self).__init__(num_bits=num_bits,
                                                                         min_range=min_range,
-                                                                        max_range=max_range)
+                                                                        max_range=max_range,
+                                                                        **kwargs)
 
         def get_config(self):
             """

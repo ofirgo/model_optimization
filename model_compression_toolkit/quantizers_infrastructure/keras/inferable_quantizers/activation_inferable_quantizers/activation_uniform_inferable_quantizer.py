@@ -41,6 +41,8 @@ if FOUND_TF:
                      num_bits: int,
                      min_range: List[float],
                      max_range: List[float],
+                     qdrop: bool = False,
+                     prob: float = 0.5,
                      ):
             """
             Initialize the quantizer with the specified parameters.
@@ -73,8 +75,11 @@ if FOUND_TF:
             self.max_range = _max_range[0]
             self.min_range = _min_range[0]
 
+            self.qdrop = qdrop
+            self.prob = prob
 
-        def __call__(self, inputs:tf.Tensor) -> tf.Tensor:
+
+        def __call__(self, inputs: tf.Tensor, training: bool) -> tf.Tensor:
             """
             Quantize the given inputs using the quantizer parameters.
 
@@ -86,10 +91,23 @@ if FOUND_TF:
             """
             assert inputs.dtype==tf.float32, f'Input tensor was expected to be a float tensor but is of type {inputs.dtype}'
 
-            return tf.quantization.fake_quant_with_min_max_vars(inputs,
-                                                                min=self.min_range,
-                                                                max=self.max_range,
-                                                                num_bits=self.num_bits)
+            # return tf.quantization.fake_quant_with_min_max_vars(inputs,
+            #                                                     min=self.min_range,
+            #                                                     max=self.max_range,
+            #                                                     num_bits=self.num_bits)
+
+            fake_quant = tf.quantization.fake_quant_with_min_max_vars(inputs,
+                                                                      min=self.min_range,
+                                                                      max=self.max_range,
+                                                                      num_bits=self.num_bits)
+
+            if self.qdrop and training:
+                t_rand = tf.random.uniform(inputs.shape)
+                t_ans = tf.where(t_rand < self.prob, fake_quant, inputs)
+            else:
+                t_ans = fake_quant
+
+            return t_ans
 
         def get_config(self):
             """

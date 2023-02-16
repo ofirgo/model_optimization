@@ -69,6 +69,8 @@ def quantization_builder(n: common.BaseNode,
 
         kwargs = get_inferable_quantizer_kwargs(n, QuantizationTarget.Activation)
 
+        kwargs['qdrop'] = gptq_config.qdrop
+        kwargs['prob'] = 0.5
         activation_quantizers.append(quantizer_class(**kwargs))
 
     return weights_quantizers, activation_quantizers
