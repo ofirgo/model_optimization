@@ -22,10 +22,8 @@ MAX_LSB_CHANGE = 1
 # Soft rounding arguments values
 SOFT_ROUNDING_GAMMA = -0.1
 SOFT_ROUNDING_ZETA = 1.1
-SOFT_ROUNDING_BETA = 2 / 3
 
 # GPTQ config constant
-REGULARIZATION_VALUES = "regularization_values"
 N_BATCHES_STR = 'n_batches'
 QUANT_PARAM_LEARNING_STR = 'quantization_parameter_learning'
 N_EPOCHS_STR = 'n_epochs'
