@@ -65,42 +65,49 @@ class SelectiveQuantizeConfig:
             we built the layer that is attached to SelectiveQuantizeConfig).
             max_candidate_idx: Index of the node's candidate that has the maximal bitwidth (must exist absolute max).
         """
-        # Make sure the candidates configurations arrived in a descending order.
-        curmax = (np.inf, np.inf)
-        n_candidate_bits = [(x.weights_quantization_cfg.weights_n_bits, x.activation_quantization_cfg.activation_n_bits)
-                            for x in node_q_cfg]
-        for candidate_bits in n_candidate_bits:
-            assert candidate_bits < curmax
-            curmax = candidate_bits
-
-        self.weight_attrs = weight_attrs
-        self.float_weights = float_weights
-
-        assert len(node_q_cfg) > 0, 'SelectiveQuantizeConfig has to receive' \
-                                            'at least one quantization configuration'
-        assert (not weight_attrs and not float_weights) or len(weight_attrs) == len(float_weights)
-
-        for qc in node_q_cfg:
-            assert qc.weights_quantization_cfg.enable_weights_quantization == \
-                   node_q_cfg[0].weights_quantization_cfg.enable_weights_quantization \
-                   and qc.activation_quantization_cfg.enable_activation_quantization == \
-                   node_q_cfg[0].activation_quantization_cfg.enable_activation_quantization, \
-                "Candidates with different weights/activation enabled properties is currently not supported"
 
         self.node_q_cfg = node_q_cfg
-        self.enable_weights_quantization = node_q_cfg[0].weights_quantization_cfg.enable_weights_quantization
-        self.enable_activation_quantization = node_q_cfg[0].activation_quantization_cfg.enable_activation_quantization
+        self.float_weights = float_weights
+        self.weight_attrs = weight_attrs
+        self.max_candidate_idx = max_candidate_idx
 
-        # Initialize a SelectiveWeightsQuantizer for each weight that should be quantized.
-        self.weight_quantizers = []
-        if self.enable_weights_quantization:
-            self.weight_quantizers = [SelectiveWeightsQuantizer(node_q_cfg,
-                                                                float_weight=float_weight,
-                                                                max_candidate_idx=max_candidate_idx) for float_weight
-                                      in float_weights]
 
-        self.activation_selective_quantizer = None if not self.enable_activation_quantization else \
-            SelectiveActivationQuantizer(node_q_cfg, max_candidate_idx=max_candidate_idx)
+        # # Make sure the candidates configurations arrived in a descending order.
+        # curmax = (np.inf, np.inf)
+        # n_candidate_bits = [(x.weights_quantization_cfg.weights_n_bits, x.activation_quantization_cfg.activation_n_bits)
+        #                     for x in node_q_cfg]
+        # for candidate_bits in n_candidate_bits:
+        #     assert candidate_bits < curmax
+        #     curmax = candidate_bits
+        #
+        # self.weight_attrs = weight_attrs
+        # self.float_weights = float_weights
+        #
+        # assert len(node_q_cfg) > 0, 'SelectiveQuantizeConfig has to receive' \
+        #                                     'at least one quantization configuration'
+        # assert (not weight_attrs and not float_weights) or len(weight_attrs) == len(float_weights)
+        #
+        # for qc in node_q_cfg:
+        #     assert qc.weights_quantization_cfg.enable_weights_quantization == \
+        #            node_q_cfg[0].weights_quantization_cfg.enable_weights_quantization \
+        #            and qc.activation_quantization_cfg.enable_activation_quantization == \
+        #            node_q_cfg[0].activation_quantization_cfg.enable_activation_quantization, \
+        #         "Candidates with different weights/activation enabled properties is currently not supported"
+        #
+        # self.node_q_cfg = node_q_cfg
+        # self.enable_weights_quantization = node_q_cfg[0].weights_quantization_cfg.enable_weights_quantization
+        # self.enable_activation_quantization = node_q_cfg[0].activation_quantization_cfg.enable_activation_quantization
+        #
+        # # Initialize a SelectiveWeightsQuantizer for each weight that should be quantized.
+        # self.weight_quantizers = []
+        # if self.enable_weights_quantization:
+        #     self.weight_quantizers = [SelectiveWeightsQuantizer(node_q_cfg,
+        #                                                         float_weight=float_weight,
+        #                                                         max_candidate_idx=max_candidate_idx) for float_weight
+        #                               in float_weights]
+        #
+        # self.activation_selective_quantizer = None if not self.enable_activation_quantization else \
+        #     SelectiveActivationQuantizer(node_q_cfg, max_candidate_idx=max_candidate_idx)
 
     def set_bit_width_index(self,
                             index: int,

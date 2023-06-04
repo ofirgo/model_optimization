@@ -25,7 +25,7 @@ from model_compression_toolkit.core.keras.quantizer.mixed_precision.selective_qu
 
 
 
-def quantization_config_builder_mixed_precision(n: common.BaseNode) -> QuantizeConfig:
+def quantization_config_builder_mixed_precision(n: common.BaseNode) -> SelectiveQuantizeConfig:
     """
     Build a QuantizeConfig for layers that should be wrapped in a QuantizeWrapper to
     be part of a mixed-precision model.

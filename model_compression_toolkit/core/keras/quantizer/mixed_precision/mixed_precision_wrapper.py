@@ -12,11 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import numpy as np
 from typing import Dict, List, Any, Tuple
 
 from mct_quantizers.common.base_inferable_quantizer import BaseInferableQuantizer
 from mct_quantizers.common.constants import FOUND_TF, ACTIVATION_QUANTIZERS, WEIGHTS_QUANTIZERS, STEPS, LAYER, TRAINING
 from mct_quantizers.logger import Logger
+
+from model_compression_toolkit.core.common.quantization.candidate_node_quantization_config import \
+    CandidateNodeQuantizationConfig
+from model_compression_toolkit.core.keras.quantizer.mixed_precision.selective_quantize_config import \
+    SelectiveQuantizeConfig
 
 if FOUND_TF:
     import tensorflow as tf
@@ -51,8 +57,9 @@ if FOUND_TF:
     class KerasMixedPrecisionQuantizationWrapper(tf.keras.layers.Wrapper):
         def __init__(self,
                      layer,
-                     weights_quantizers: Dict[str, BaseInferableQuantizer] = None,
-                     activation_quantizers: List[BaseInferableQuantizer] = None,
+                     selective_quantize_config: SelectiveQuantizeConfig,
+                     # weights_quantizers: Dict[str, BaseInferableQuantizer] = None,
+                     # activation_quantizers: List[BaseInferableQuantizer] = None,
                      **kwargs):
             """
             Keras Quantization Wrapper takes a keras layer and quantizers and infer a quantized layer.
@@ -63,94 +70,115 @@ if FOUND_TF:
                 activation_quantizers: A list of activations quantization, one for each layer output.
             """
             super(KerasMixedPrecisionQuantizationWrapper, self).__init__(layer, **kwargs)
-            self._track_trackable(layer, name='layer')
-            self.weights_quantizers = weights_quantizers if weights_quantizers is not None else dict()
-            self.activation_quantizers = activation_quantizers if activation_quantizers is not None else list()
 
-        def add_weights_quantizer(self, param_name: str, quantizer: BaseInferableQuantizer):
-            """
-            This function adds a weights quantizer to existing wrapper
+            # TODO: Remove selective_quantize config from the middle and just pass the parameters as arguments (need to build them externally)
 
-            Args:
-                param_name: The name of the parameter to quantize
-                quantizer: A quantizer.
+            # self.node_q_cfg = selective_quantize_config.node_q_cfg
+            # self.float_weights = selective_quantize_config.float_weights
+            # self.weight_attrs = selective_quantize_config.weight_attrs
+            # self.max_candidate_idx = selective_quantize_config.max_candidate_idx
 
-            Returns: None
+            node_q_cfg = selective_quantize_config.node_q_cfg
+            float_weights = selective_quantize_config.float_weights
+            weight_attrs = selective_quantize_config.weight_attrs
+            max_candidate_idx = selective_quantize_config.max_candidate_idx
 
-            """
-            self.weights_quantizers.update({param_name: quantizer})
+            # self._track_trackable(layer, name='layer')
+            # self.weights_quantizers = weights_quantizers if weights_quantizers is not None else dict()
+            # self.activation_quantizers = activation_quantizers if activation_quantizers is not None else list()
 
-        @property
-        def is_activation_quantization(self) -> bool:
-            """
-            This function check activation quantizer exists in wrapper.
-            Returns: a boolean if activation quantizer exists
+            # Make sure the candidates configurations arrived in a descending order.
+            curmax = (np.inf, np.inf)
+            n_candidate_bits = [(x.weights_quantization_cfg.weights_n_bits, x.activation_quantization_cfg.activation_n_bits)
+                                for x in node_q_cfg]
+            for candidate_bits in n_candidate_bits:
+                assert candidate_bits < curmax
+                curmax = candidate_bits
 
-            """
-            return self.num_activation_quantizers > 0
+            self.weight_attrs = weight_attrs
+            self.float_weights = float_weights
 
-        @property
-        def is_weights_quantization(self) -> bool:
-            """
-            This function check weights quantizer exists in wrapper.
+            assert len(node_q_cfg) > 0, 'SelectiveQuantizeConfig has to receive' \
+                                                'at least one quantization configuration'
+            assert (not weight_attrs and not float_weights) or len(weight_attrs) == len(float_weights)
 
-            Returns: a boolean if weights quantizer exists
+            for qc in node_q_cfg:
+                assert qc.weights_quantization_cfg.enable_weights_quantization == \
+                       node_q_cfg[0].weights_quantization_cfg.enable_weights_quantization \
+                       and qc.activation_quantization_cfg.enable_activation_quantization == \
+                       node_q_cfg[0].activation_quantization_cfg.enable_activation_quantization, \
+                    "Candidates with different weights/activation enabled properties is currently not supported"
 
-            """
-            return self.num_weights_quantizers > 0
+            self.node_q_cfg = node_q_cfg
+            self.enable_weights_quantization = node_q_cfg[0].weights_quantization_cfg.enable_weights_quantization
+            self.enable_activation_quantization = node_q_cfg[0].activation_quantization_cfg.enable_activation_quantization
 
-        @property
-        def num_weights_quantizers(self) -> int:
-            """
-            Returns: number of weights quantizers
-            """
-            return len(self.weights_quantizers)
+            # Initialize a SelectiveWeightsQuantizer for each weight that should be quantized.
+            self.weight_quantizers = []
 
-        @property
-        def num_activation_quantizers(self) -> int:
-            """
-            Returns: number of activations quantizers
-            """
-            return len(self.activation_quantizers)
+
+            self.quantizer_fn_list = [qc.weights_quantization_cfg.weights_quantization_fn for qc in self.node_q_cfg]
+
+
+            for i in range(len(self.node_q_cfg)):
+                qc = self.node_q_cfg[i].weights_quantization_cfg
+                q_weight = self.quantizer_fn_list[i](self.float_weight,
+                                                 qc.weights_n_bits,
+                                                 True,
+                                                 qc.weights_quantization_params,
+                                                 qc.weights_per_channel_threshold,
+                                                 qc.weights_channels_axis)
+                self.quantized_weights.append(tf.Variable(q_weight,
+                                                          trainable=False,
+                                                          dtype=tf.float32))
+
+            if not self.enable_activation_quantization:
+                self.activation_quantizers = None
+            else:
+                self.activation_quantizers = []
+                for i in range(len(self.node_q_cfg)):
+                    q_activation = self.node_q_cfg[i].activation_quantization_cfg
+                    self.activation_quantizers.append(q_activation.quantize_node_output)
 
         def get_config(self):
             """
             Returns: Configuration of KerasQuantizationWrapper.
 
             """
-            base_config = super(KerasQuantizationWrapper, self).get_config()
-            config = {
-                ACTIVATION_QUANTIZERS: [keras.utils.serialize_keras_object(act) for act in self.activation_quantizers],
-                WEIGHTS_QUANTIZERS: {k: keras.utils.serialize_keras_object(v) for k, v in self.weights_quantizers.items()}}
-            return dict(list(base_config.items()) + list(config.items()))
+            # base_config = super(KerasQuantizationWrapper, self).get_config()
+            # config = {
+            #     ACTIVATION_QUANTIZERS: [keras.utils.serialize_keras_object(act) for act in self.activation_quantizers],
+            #     WEIGHTS_QUANTIZERS: {k: keras.utils.serialize_keras_object(v) for k, v in self.weights_quantizers.items()}}
+            # return dict(list(base_config.items()) + list(config.items()))
+            raise Exception()
 
-        def _set_weights_vars(self, is_training: bool = True):
-            """
-            This function sets weights quantizers vars to the layer
-
-            Args:
-                is_training: Flag to indicate whether training or not
-
-            Returns: None
-            """
-            self._weights_vars = []
-            for name, quantizer in self.weights_quantizers.items():
-                weight = getattr(self.layer, name)
-                quantizer.initialize_quantization(weight.shape, _weight_name(weight.name) if is_training else None,
-                                                  self)
-                self._weights_vars.append((name, weight, quantizer))
-                self._trainable_weights.append(weight) # Must when inherit from tf.keras.layers.Wrapper in tf2.10 and below
-
-        def _set_activations_vars(self):
-            """
-            This function sets activations quantizers vars to the layer
-
-            Returns: None
-            """
-            self._activation_vars = []
-            for i, quantizer in enumerate(self.activation_quantizers):
-                quantizer.initialize_quantization(None, self.layer.name + f'/out{i}', self)
-                self._activation_vars.append(quantizer)
+        # def _set_weights_vars(self, is_training: bool = True):
+        #     """
+        #     This function sets weights quantizers vars to the layer
+        #
+        #     Args:
+        #         is_training: Flag to indicate whether training or not
+        #
+        #     Returns: None
+        #     """
+        #     self._weights_vars = []
+        #     for name, quantizer in self.weights_quantizers.items():
+        #         weight = getattr(self.layer, name)
+        #         quantizer.initialize_quantization(weight.shape, _weight_name(weight.name) if is_training else None,
+        #                                           self)
+        #         self._weights_vars.append((name, weight, quantizer))
+        #         self._trainable_weights.append(weight) # Must when inherit from tf.keras.layers.Wrapper in tf2.10 and below
+        #
+        # def _set_activations_vars(self):
+        #     """
+        #     This function sets activations quantizers vars to the layer
+        #
+        #     Returns: None
+        #     """
+        #     self._activation_vars = []
+        #     for i, quantizer in enumerate(self.activation_quantizers):
+        #         quantizer.initialize_quantization(None, self.layer.name + f'/out{i}', self)
+        #         self._activation_vars.append(quantizer)
 
         @classmethod
         def from_config(cls, config):
@@ -162,57 +190,58 @@ if FOUND_TF:
             Returns: A KerasQuantizationWrapper
 
             """
-            config = config.copy()
-            activation_quantizers = [keras.utils.deserialize_keras_object(act,
-                                                                          module_objects=globals(),
-                                                                          custom_objects=None) for act in
-                                     config.pop(ACTIVATION_QUANTIZERS)]
-            weights_quantizers = {k: keras.utils.deserialize_keras_object(v,
-                                                                         module_objects=globals(),
-                                                                         custom_objects=None) for k, v in
-                                 config.pop(WEIGHTS_QUANTIZERS).items()}
-            layer = tf.keras.layers.deserialize(config.pop(LAYER))
-            return cls(layer=layer, weights_quantizers=weights_quantizers, activation_quantizers=activation_quantizers, **config)
+            # config = config.copy()
+            # activation_quantizers = [keras.utils.deserialize_keras_object(act,
+            #                                                               module_objects=globals(),
+            #                                                               custom_objects=None) for act in
+            #                          config.pop(ACTIVATION_QUANTIZERS)]
+            # weights_quantizers = {k: keras.utils.deserialize_keras_object(v,
+            #                                                              module_objects=globals(),
+            #                                                              custom_objects=None) for k, v in
+            #                      config.pop(WEIGHTS_QUANTIZERS).items()}
+            # layer = tf.keras.layers.deserialize(config.pop(LAYER))
+            # return cls(layer=layer, weights_quantizers=weights_quantizers, activation_quantizers=activation_quantizers, **config)
+            raise Exception()
+        #
+        # def build(self, input_shape):
+        #     """
+        #     KerasQuantization Wrapper build function.
+        #     Args:
+        #         input_shape: the layer input shape
+        #
+        #     Returns: None
+        #
+        #     """
+        #     super(KerasQuantizationWrapper, self).build(input_shape)
+        #
+        #     self.optimizer_step = self.add_weight(
+        #         STEPS,
+        #         initializer=tf.keras.initializers.Constant(-1),
+        #         dtype=tf.dtypes.int32,
+        #         trainable=False)
+        #
+        #     self._set_weights_vars()
+        #     self._set_activations_vars()
 
-        def build(self, input_shape):
-            """
-            KerasQuantization Wrapper build function.
-            Args:
-                input_shape: the layer input shape
-
-            Returns: None
-
-            """
-            super(KerasQuantizationWrapper, self).build(input_shape)
-
-            self.optimizer_step = self.add_weight(
-                STEPS,
-                initializer=tf.keras.initializers.Constant(-1),
-                dtype=tf.dtypes.int32,
-                trainable=False)
-
-            self._set_weights_vars()
-            self._set_activations_vars()
-
-        def set_quantize_weights(self, quantized_weights: dict):
-            """
-            This function update layer weights after quantization.
-
-            Args:
-                quantized_weights: a dict of weight to update
-
-            Returns: None
-
-            """
-            for weight_attr in self.weights_quantizers.keys():
-                weight = quantized_weights.get(weight_attr)
-                current_weight = getattr(self.layer, weight_attr)
-                if current_weight.shape != weight.shape:
-                    Logger.error(
-                        f"Existing layer weight shape {current_weight.shape} is incompatible with provided weight "
-                        f"shape {weight.shape}")  # pragma: no cover
-
-                setattr(self.layer, weight_attr, weight)
+        # def set_quantize_weights(self, quantized_weights: dict):
+        #     """
+        #     This function update layer weights after quantization.
+        #
+        #     Args:
+        #         quantized_weights: a dict of weight to update
+        #
+        #     Returns: None
+        #
+        #     """
+        #     for weight_attr in self.weights_quantizers.keys():
+        #         weight = quantized_weights.get(weight_attr)
+        #         current_weight = getattr(self.layer, weight_attr)
+        #         if current_weight.shape != weight.shape:
+        #             Logger.error(
+        #                 f"Existing layer weight shape {current_weight.shape} is incompatible with provided weight "
+        #                 f"shape {weight.shape}")  # pragma: no cover
+        #
+        #         setattr(self.layer, weight_attr, weight)
 
         def call(self, inputs, training=None, **kwargs):
             """

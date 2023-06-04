@@ -26,6 +26,8 @@ from model_compression_toolkit.core.keras.quantizer.input_layer_quantize_transfo
     InputLayerWrapperTransform
 
 # As from Tensorflow 2.6, keras is a separate package and some classes should be imported differently.
+from model_compression_toolkit.core.keras.quantizer.mixed_precision.mixed_precision_wrapper import \
+    KerasMixedPrecisionQuantizationWrapper
 from model_compression_toolkit.core.keras.quantizer.mixed_precision.selective_quantize_config import \
     SelectiveQuantizeConfig
 from packaging import version
