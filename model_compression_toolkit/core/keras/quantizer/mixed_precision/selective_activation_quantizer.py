@@ -25,7 +25,7 @@ from model_compression_toolkit.core.common.quantization.candidate_node_quantizat
 from model_compression_toolkit.core.common.quantization.node_quantization_config import NodeActivationQuantizationConfig
 
 
-class SelectiveActivationQuantizer(Quantizer):
+class SelectiveActivationQuantizer:
     """
     Quantizer that can use different quantized weights on-the-fly.
     The general idea behind this kind of quantizer is that it gets the float tensor to quantize
@@ -75,17 +75,17 @@ class SelectiveActivationQuantizer(Quantizer):
             q_activation = self._get_qc_quantizer(i)
             self.activation_quantizers.append(q_activation.quantize_node_output)
 
-    def build(self,
-              tensor_shape: TensorShape,
-              name: str,
-              layer: QuantizeWrapper) -> Dict[str, tf.Variable]:
-        """
-        The build method has to be implemented as part of the Keras framework,
-        but there is no need to use it here as we do not train any new variable.
-        Hence, it returns an empty dictionary.
-        """
-
-        return {}
+    # def build(self,
+    #           tensor_shape: TensorShape,
+    #           name: str,
+    #           layer: QuantizeWrapper) -> Dict[str, tf.Variable]:
+    #     """
+    #     The build method has to be implemented as part of the Keras framework,
+    #     but there is no need to use it here as we do not train any new variable.
+    #     Hence, it returns an empty dictionary.
+    #     """
+    #
+    #     return {}
 
     def __call__(self,
                  inputs: tf.Tensor,

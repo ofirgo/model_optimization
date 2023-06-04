@@ -109,7 +109,8 @@ class MixedPrecisionKerasModelBuilder(KerasModelBuilder):
                                         f"{node.layer_class}. Please modify the TargetPlatformModel object, "
                                         f"such that layers of type {node.layer_class} "
                                         f"won't have more than one quantization configuration option.")
-                    return QuantizeWrapper(layer, quantization_config_builder_mixed_precision(node))
+                    # return QuantizeWrapper(layer, quantization_config_builder_mixed_precision(node))
+                    return KerasMixedPrecisionQuantizationWrapper(layer, quantization_config_builder_mixed_precision(node))
                 return layer
 
             elif is_layer_fake_quant(layer):

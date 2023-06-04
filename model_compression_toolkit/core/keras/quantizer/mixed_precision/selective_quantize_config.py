@@ -36,7 +36,7 @@ from tensorflow_model_optimization.python.core.quantization.keras.quantize_confi
 from model_compression_toolkit.core.keras.quantizer.mixed_precision.selective_weights_quantizer import SelectiveWeightsQuantizer
 
 
-class SelectiveQuantizeConfig(QuantizeConfig):
+class SelectiveQuantizeConfig:
     """
     SelectiveQuantizeConfig to use as a QuantizeCong for layers that are wrapped
     for MP models. SelectiveQuantizeConfig holds a SelectiveWeightsQuantizer and uses
@@ -175,10 +175,10 @@ class SelectiveQuantizeConfig(QuantizeConfig):
         return [] if not self.enable_weights_quantization else \
             [(getattr(layer, self.weight_attrs[i]), self.weight_quantizers[i]) for i in range(len(self.weight_attrs))]
 
-    def get_activations_and_quantizers(self, layer: Layer) -> list:
-        # For configurable activations we use get_output_quantizers,
-        # Therefore, we do not need to implement this method.
-        return []
+    # def get_activations_and_quantizers(self, layer: Layer) -> list:
+    #     # For configurable activations we use get_output_quantizers,
+    #     # Therefore, we do not need to implement this method.
+    #     return []
 
     def set_quantize_weights(self, layer: Layer, quantize_weights: List[Tensor]):
         """
@@ -202,8 +202,8 @@ class SelectiveQuantizeConfig(QuantizeConfig):
 
                 setattr(layer, weight_attr, weight)
 
-    def set_quantize_activations(self, layer, quantize_activations: ListWrapper):
-        pass
+    # def set_quantize_activations(self, layer, quantize_activations: ListWrapper):
+    #     pass
 
     def get_output_quantizers(self, layer: Layer) -> list:
         return [] if not self.enable_activation_quantization else [self.activation_selective_quantizer]
