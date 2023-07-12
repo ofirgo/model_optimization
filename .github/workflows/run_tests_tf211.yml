@@ -8,4 +8,4 @@ jobs:
   run-tensorflow-2_11:
     uses: ./.github/workflows/run_keras_tests.yml
     with:
-      tf-version: "2.11.*"
+      tf-version: "2.12.*"
