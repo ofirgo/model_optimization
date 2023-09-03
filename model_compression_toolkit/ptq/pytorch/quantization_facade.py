@@ -15,6 +15,9 @@
 from typing import Callable
 
 from model_compression_toolkit.core import common
+from model_compression_toolkit.core.common.visualization.tensorboard_util import init_tensorboard_writer
+from model_compression_toolkit.core.quantization_prep_runner import quantization_preparation_runner
+from model_compression_toolkit.core.quantization_runner import quantization_runner
 from model_compression_toolkit.logger import Logger
 from model_compression_toolkit.constants import PYTORCH, FOUND_TORCH
 from model_compression_toolkit.target_platform_capabilities.target_platform import TargetPlatformCapabilities
@@ -22,7 +25,7 @@ from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import 
 from model_compression_toolkit.core import CoreConfig
 from model_compression_toolkit.core.common.mixed_precision.mixed_precision_quantization_config import \
     MixedPrecisionQuantizationConfigV2
-from model_compression_toolkit.core.runner import core_runner, _init_tensorboard_writer
+from model_compression_toolkit.core.graph_prep_runner import graph_preparation_runner
 from model_compression_toolkit.ptq.runner import ptq_runner
 from model_compression_toolkit.core.exporter import export_model
 from model_compression_toolkit.core.analyzer import analyzer_model_quantization
@@ -102,18 +105,19 @@ if FOUND_TORCH:
             Logger.info("Using experimental mixed-precision quantization. "
                                "If you encounter an issue please file a bug.")
 
-        tb_w = _init_tensorboard_writer(DEFAULT_PYTORCH_INFO)
+        tb_w = init_tensorboard_writer(DEFAULT_PYTORCH_INFO)
 
         fw_impl = PytorchImplementation()
 
-        tg, bit_widths_config = core_runner(in_model=in_module,
-                                            representative_data_gen=representative_data_gen,
-                                            core_config=core_config,
-                                            fw_info=DEFAULT_PYTORCH_INFO,
-                                            fw_impl=fw_impl,
-                                            tpc=target_platform_capabilities,
-                                            target_kpi=target_kpi,
-                                            tb_w=tb_w)
+        runner_general_params = {'representative_data_gen': representative_data_gen,
+                                 'core_config': core_config, 'fw_info': DEFAULT_PYTORCH_INFO, 'fw_impl': fw_impl,
+                                 'tb_w': tb_w}
+
+        tg = graph_preparation_runner(in_model=in_module, tpc=target_platform_capabilities, **runner_general_params)
+
+        tg = quantization_preparation_runner(graph=tg, **runner_general_params)
+
+        tg, bit_widths_config = quantization_runner(graph=tg, target_kpi=target_kpi, **runner_general_params)
 
         tg = ptq_runner(tg, representative_data_gen, core_config, DEFAULT_PYTORCH_INFO, fw_impl, tb_w)
 

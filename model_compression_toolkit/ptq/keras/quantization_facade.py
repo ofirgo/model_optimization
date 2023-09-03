@@ -17,6 +17,9 @@ from typing import Callable
 
 from model_compression_toolkit.core import CoreConfig
 from model_compression_toolkit.core.analyzer import analyzer_model_quantization
+from model_compression_toolkit.core.common.visualization.tensorboard_util import init_tensorboard_writer
+from model_compression_toolkit.core.quantization_prep_runner import quantization_preparation_runner
+from model_compression_toolkit.core.quantization_runner import quantization_runner
 from model_compression_toolkit.logger import Logger
 from model_compression_toolkit.constants import TENSORFLOW, FOUND_TF
 from model_compression_toolkit.core.common.mixed_precision.kpi_tools.kpi import KPI
@@ -24,7 +27,7 @@ from model_compression_toolkit.core.common.mixed_precision.mixed_precision_quant
     MixedPrecisionQuantizationConfigV2
 from model_compression_toolkit.target_platform_capabilities.target_platform.targetplatform2framework import TargetPlatformCapabilities
 from model_compression_toolkit.core.exporter import export_model
-from model_compression_toolkit.core.runner import core_runner, _init_tensorboard_writer
+from model_compression_toolkit.core.graph_prep_runner import graph_preparation_runner
 from model_compression_toolkit.ptq.runner import ptq_runner
 
 if FOUND_TF:
@@ -130,18 +133,18 @@ if FOUND_TF:
             Logger.info("Using experimental mixed-precision quantization. "
                                "If you encounter an issue please file a bug.")
 
-        tb_w = _init_tensorboard_writer(fw_info)
+        tb_w = init_tensorboard_writer(fw_info)
 
         fw_impl = KerasImplementation()
 
-        tg, bit_widths_config = core_runner(in_model=in_model,
-                                            representative_data_gen=representative_data_gen,
-                                            core_config=core_config,
-                                            fw_info=fw_info,
-                                            fw_impl=fw_impl,
-                                            tpc=target_platform_capabilities,
-                                            target_kpi=target_kpi,
-                                            tb_w=tb_w)
+        runner_general_params = {'representative_data_gen': representative_data_gen,
+                                 'core_config': core_config, 'fw_info': fw_info, 'fw_impl': fw_impl, 'tb_w': tb_w}
+
+        tg = graph_preparation_runner(in_model=in_model, tpc=target_platform_capabilities, **runner_general_params)
+
+        tg = quantization_preparation_runner(graph=tg, **runner_general_params)
+
+        tg, bit_widths_config = quantization_runner(graph=tg, target_kpi=target_kpi, **runner_general_params)
 
         tg = ptq_runner(tg, representative_data_gen, core_config, fw_info, fw_impl, tb_w)
 

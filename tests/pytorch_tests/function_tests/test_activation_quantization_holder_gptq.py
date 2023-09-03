@@ -122,8 +122,8 @@ class TestGPTQModelBuilderWithActivationHolder(unittest.TestCase):
                                                            generate_pytorch_tpc,
                                                            [1] + input_shape,
                                                            mixed_precision_enabled=False)
-        graph = set_bit_widths(mixed_precision_enable=False,
-                               graph=graph)
+        set_bit_widths(mixed_precision_enable=False,
+                       graph=graph)
         trainer = PytorchGPTQTrainer(graph,
                                    graph,
                                    mct.gptq.get_pytorch_gptq_config(1, use_hessian_based_weights=False),

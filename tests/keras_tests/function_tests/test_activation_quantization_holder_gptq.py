@@ -78,8 +78,8 @@ class TestGPTQModelBuilderWithActivationHolder(unittest.TestCase):
                                                            generate_keras_tpc,
                                                            (1,) + input_shape,
                                                            mixed_precision_enabled=False)
-        graph = set_bit_widths(mixed_precision_enable=False,
-                               graph=graph)
+        set_bit_widths(mixed_precision_enable=False,
+                       graph=graph)
         trainer = KerasGPTQTrainer(graph,
                                    graph,
                                    mct.gptq.get_keras_gptq_config(1, use_hessian_based_weights=False),

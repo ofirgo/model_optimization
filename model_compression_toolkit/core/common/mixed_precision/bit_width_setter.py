@@ -23,7 +23,7 @@ from model_compression_toolkit.logger import Logger
 
 def set_bit_widths(mixed_precision_enable: bool,
                    graph: Graph,
-                   bit_widths_config: List[int] = None) -> Graph:
+                   bit_widths_config: List[int] = None):
     """
     Set bit widths configuration to nodes in a graph. For each node, use the desired index
     in bit_widths_config to finalize the node weights and activation quantization configuration.
@@ -64,16 +64,15 @@ def set_bit_widths(mixed_precision_enable: bool,
                 assert len(node.candidates_quantization_cfg) > 0, \
                     "Node need to have at least one quantization configuration in order to quantize its activation"
                 node.final_weights_quantization_cfg = copy.deepcopy(node.candidates_quantization_cfg[0].weights_quantization_cfg)
-
     # When working in non-mixed-precision mode, there's only one bitwidth, and we simply set the
     # only candidate of the node as its final weight and activation quantization configuration.
     else:
         for n in graph.nodes:
             assert len(n.candidates_quantization_cfg) == 1
-            n.final_weights_quantization_cfg = copy.deepcopy(n.candidates_quantization_cfg[0].weights_quantization_cfg)
-            n.final_activation_quantization_cfg = copy.deepcopy(n.candidates_quantization_cfg[0].activation_quantization_cfg)
-
-    return graph
+            n.final_weights_quantization_cfg = copy.deepcopy(
+                n.candidates_quantization_cfg[0].weights_quantization_cfg)
+            n.final_activation_quantization_cfg = copy.deepcopy(
+                n.candidates_quantization_cfg[0].activation_quantization_cfg)
 
 
 def _get_node_qc_by_bit_widths(node: BaseNode,

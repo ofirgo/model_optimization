@@ -14,6 +14,9 @@
 # ==============================================================================
 from typing import Callable, List, Tuple
 
+from model_compression_toolkit.core.common.visualization.tensorboard_util import init_tensorboard_writer
+from model_compression_toolkit.core.quantization_prep_runner import quantization_preparation_runner
+from model_compression_toolkit.core.quantization_runner import quantization_runner
 from model_compression_toolkit.logger import Logger
 from model_compression_toolkit.constants import PYTORCH
 from model_compression_toolkit.core.common.user_info import UserInformation
@@ -28,7 +31,7 @@ from model_compression_toolkit.core.common.mixed_precision.mixed_precision_quant
     MixedPrecisionQuantizationConfig, DEFAULT_MIXEDPRECISION_CONFIG
 from model_compression_toolkit.core.common.quantization.quantization_config import QuantizationConfig
 from model_compression_toolkit.core.common.quantization.quantization_config import DEFAULTCONFIG
-from model_compression_toolkit.core.runner import core_runner, _init_tensorboard_writer
+from model_compression_toolkit.core.graph_prep_runner import graph_preparation_runner
 from model_compression_toolkit.gptq.runner import gptq_runner
 from model_compression_toolkit.ptq.runner import ptq_runner
 from model_compression_toolkit.core.exporter import export_model
@@ -106,7 +109,7 @@ if FOUND_TORCH:
                                  debug_config=DebugConfig(analyze_similarity=analyze_similarity,
                                                           network_editor=network_editor))
 
-        tb_w = _init_tensorboard_writer(fw_info)
+        tb_w = init_tensorboard_writer(fw_info)
 
         fw_impl = PytorchImplementation()
 
@@ -115,13 +118,10 @@ if FOUND_TORCH:
             for _ in range(n_iter):
                 yield representative_data_gen()
 
-        tg, bit_widths_config = core_runner(in_model=in_module,
-                                            representative_data_gen=_representative_data_gen,
-                                            core_config=core_config,
-                                            fw_info=fw_info,
-                                            fw_impl=fw_impl,
-                                            tpc=target_platform_capabilities,
-                                            tb_w=tb_w)
+        tg, bit_widths_config = graph_preparation_runner(in_model=in_module,
+                                                         representative_data_gen=_representative_data_gen,
+                                                         core_config=core_config, fw_info=fw_info, fw_impl=fw_impl,
+                                                         tpc=target_platform_capabilities, tb_w=tb_w)
 
         if gptq_config is None:
             tg = ptq_runner(tg, _representative_data_gen, core_config, fw_info, fw_impl, tb_w)
@@ -234,7 +234,7 @@ if FOUND_TORCH:
                                  debug_config=DebugConfig(analyze_similarity=analyze_similarity,
                                                           network_editor=network_editor))
 
-        tb_w = _init_tensorboard_writer(fw_info)
+        tb_w = init_tensorboard_writer(fw_info)
 
         fw_impl = PytorchImplementation()
 
@@ -243,14 +243,14 @@ if FOUND_TORCH:
             for _ in range(n_iter):
                 yield representative_data_gen()
 
-        tg, bit_widths_config = core_runner(in_model=in_model,
-                                            representative_data_gen=_representative_data_gen,
-                                            core_config=core_config,
-                                            fw_info=fw_info,
-                                            fw_impl=fw_impl,
-                                            tpc=target_platform_capabilities,
-                                            target_kpi=target_kpi,
-                                            tb_w=tb_w)
+        runner_general_params = {'representative_data_gen': representative_data_gen,
+                                 'core_config': core_config, 'fw_info': fw_info, 'fw_impl': fw_impl, 'tb_w': tb_w}
+
+        tg = graph_preparation_runner(in_model=in_model, tpc=target_platform_capabilities, **runner_general_params)
+
+        tg = quantization_preparation_runner(graph=tg, **runner_general_params)
+
+        tg, bit_widths_config = quantization_runner(graph=tg, target_kpi=target_kpi, **runner_general_params)
 
         if gptq_config is None:
             tg = ptq_runner(tg, _representative_data_gen, core_config, fw_info, fw_impl, tb_w)

@@ -34,7 +34,7 @@ from model_compression_toolkit.core.common.quantization.quantization_params_gene
 from model_compression_toolkit.core.common.statistics_correction.statistics_correction import \
     statistics_correction_runner
 from model_compression_toolkit.core.common.substitutions.apply_substitutions import substitute
-from model_compression_toolkit.core.runner import read_model_to_graph, get_finalized_graph
+from model_compression_toolkit.core.graph_prep_runner import read_model_to_graph, get_finalized_graph
 from tests.keras_tests.feature_networks_tests.base_keras_feature_test import BaseKerasFeatureNetworkTest
 from model_compression_toolkit.target_platform_capabilities.target_platform import QuantizationMethod
 
@@ -165,15 +165,15 @@ def prepare_graph_for_second_network_editor(in_model, representative_data_gen, c
     else:
         bit_widths_config = []
 
-    tg = set_bit_widths(core_config.mixed_precision_enable,
-                        tg_with_bias,
-                        bit_widths_config)
+    set_bit_widths(core_config.mixed_precision_enable,
+                   tg_with_bias,
+                   bit_widths_config)
 
     # Edit the graph again after finalizing the configurations.
     # This is since some actions regard the final configuration and should be edited.
-    edit_network_graph(tg, fw_info, core_config.debug_config.network_editor)
+    edit_network_graph(tg_with_bias, fw_info, core_config.debug_config.network_editor)
 
-    return tg
+    return tg_with_bias
 
 
 class BaseChangeQuantConfigAttrTest(BaseKerasFeatureNetworkTest):

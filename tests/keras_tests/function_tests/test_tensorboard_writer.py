@@ -22,11 +22,18 @@ from tensorboard.backend.event_processing import event_file_loader
 from tensorboard.compat.proto.graph_pb2 import GraphDef
 
 import model_compression_toolkit as mct
+from model_compression_toolkit import DebugConfig
 from model_compression_toolkit.constants import TENSORFLOW
+from model_compression_toolkit.core import CoreConfig
 from model_compression_toolkit.core.common.mixed_precision.mixed_precision_quantization_config import \
     DEFAULT_MIXEDPRECISION_CONFIG
+from model_compression_toolkit.core.common.mixed_precision.mixed_precision_runner import mixed_precision_runner
 from model_compression_toolkit.core.common.visualization.final_config_visualizer import \
     ActivationFinalBitwidthConfigVisualizer
+from model_compression_toolkit.core.common.visualization.tensorboard_util import init_tensorboard_writer
+from model_compression_toolkit.core.graph_prep_runner import graph_preparation_runner
+from model_compression_toolkit.core.quantization_prep_runner import quantization_preparation_runner
+from model_compression_toolkit.core.quantization_runner import quantization_runner
 from model_compression_toolkit.target_platform_capabilities.constants import DEFAULT_TP_MODEL
 from model_compression_toolkit.core.keras.default_framework_info import DEFAULT_KERAS_INFO
 from model_compression_toolkit.core.keras.keras_implementation import KerasImplementation
@@ -62,6 +69,57 @@ def MultipleOutputsNet():
     out1 = layers.ReLU(max_value=6.0)(x)
     out2 = layers.Dense(2)(out1)
     return keras.Model(inputs=inputs, outputs=[out1, out2])
+
+
+def _prepare_graph_set_bit_widths(in_model,
+                                  fw_impl,
+                                  representative_data_gen,
+                                  target_kpi,
+                                  n_iter,
+                                  quant_config,
+                                  fw_info,
+                                  network_editor,
+                                  analyze_similarity,
+                                  tpc):
+
+    # Config
+    quantization_config, mp_config = quant_config.separate_configs()
+    core_config = CoreConfig(quantization_config=quantization_config,
+                             mixed_precision_config=mp_config,
+                             debug_config=DebugConfig(analyze_similarity=analyze_similarity,
+                                                      network_editor=network_editor))
+
+    tb_w = init_tensorboard_writer(fw_info)
+
+    # convert old representative dataset generation to a generator
+    def _representative_data_gen():
+        for _ in range(n_iter):
+            yield representative_data_gen()
+
+    graph = graph_preparation_runner(in_model,
+                                     _representative_data_gen,
+                                     core_config,
+                                     fw_info,
+                                     fw_impl,
+                                     tpc,
+                                     tb_w)
+
+    tg = quantization_preparation_runner(graph,
+                                         _representative_data_gen,
+                                         core_config,
+                                         fw_info,
+                                         fw_impl,
+                                         tb_w)
+
+    tg, bit_width_config = quantization_runner(graph,
+                                               representative_data_gen,
+                                               core_config,
+                                               fw_info,
+                                               fw_impl,
+                                               target_kpi,
+                                               tb_w)
+
+    return tg
 
 
 class TestFileLogger(unittest.TestCase):
@@ -103,15 +161,15 @@ class TestFileLogger(unittest.TestCase):
                                          (2, 8), (2, 4), (2, 2)])
         tpc = generate_keras_tpc(name='mp_keras_tpc', tp_model=tpc_model)
         # compare max tensor size with plotted max tensor size
-        tg = prepare_graph_set_bit_widths(in_model=model,
-                                          fw_impl=KerasImplementation(),
-                                          fw_info=DEFAULT_KERAS_INFO,
-                                          representative_data_gen=random_datagen,
-                                          tpc=tpc,
-                                          network_editor=[],
-                                          quant_config=DEFAULT_MIXEDPRECISION_CONFIG,
-                                          target_kpi=mct.core.KPI(),
-                                          n_iter=1, analyze_similarity=True)
+        tg = _prepare_graph_set_bit_widths(in_model=model,
+                                           fw_impl=KerasImplementation(),
+                                           fw_info=DEFAULT_KERAS_INFO,
+                                           representative_data_gen=random_datagen,
+                                           tpc=tpc,
+                                           network_editor=[],
+                                           quant_config=DEFAULT_MIXEDPRECISION_CONFIG,
+                                           target_kpi=mct.core.KPI(),
+                                           n_iter=1, analyze_similarity=True)
         tensors_sizes = [4.0 * n.get_total_output_params() / 1000000.0
                          for n in tg.get_sorted_activation_configurable_nodes()]  # in MB
         max_tensor_size = max(tensors_sizes)
@@ -135,11 +193,11 @@ class TestFileLogger(unittest.TestCase):
         mp_qc = mct.core.MixedPrecisionQuantizationConfigV2(num_of_images=1)
         core_config = mct.core.CoreConfig(mixed_precision_config=mp_qc)
         quantized_model, _ = mct.ptq.keras_post_training_quantization_experimental(self.model,
-                                                                               rep_data,
-                                                                               target_kpi=mct.core.KPI(np.inf),
-                                                                               core_config=core_config,
-                                                                               target_platform_capabilities=tpc,
-                                                                               new_experimental_exporter=True)
+                                                                                   rep_data,
+                                                                                   target_kpi=mct.core.KPI(np.inf),
+                                                                                   core_config=core_config,
+                                                                                   target_platform_capabilities=tpc,
+                                                                                   new_experimental_exporter=True)
 
         self.tensorboard_initial_graph_num_of_nodes(num_event_files=1, event_to_test=0)
 
@@ -149,11 +207,11 @@ class TestFileLogger(unittest.TestCase):
         # Test Multiple Outputs model Logger
         self.model = MultipleOutputsNet()
         quantized_model, _ = mct.ptq.keras_post_training_quantization_experimental(self.model,
-                                                                               rep_data,
-                                                                               target_kpi=mct.core.KPI(np.inf),
-                                                                               core_config=core_config,
-                                                                               target_platform_capabilities=tpc,
-                                                                               new_experimental_exporter=True)
+                                                                                   rep_data,
+                                                                                   target_kpi=mct.core.KPI(np.inf),
+                                                                                   core_config=core_config,
+                                                                                   target_platform_capabilities=tpc,
+                                                                                   new_experimental_exporter=True)
 
         # Test tensor size plotting
         self.plot_tensor_sizes()
