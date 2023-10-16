@@ -15,7 +15,7 @@
 import copy
 
 import numpy as np
-from typing import Callable, Any, List
+from typing import Callable, Any, List, Tuple
 
 from model_compression_toolkit.constants import AXIS
 from model_compression_toolkit.core import FrameworkInfo, MixedPrecisionQuantizationConfigV2
@@ -78,11 +78,40 @@ class SensitivityEvaluation:
         self.disable_activation_for_metric = disable_activation_for_metric
         self.hessian_info_service = hessian_info_service
 
-        # Get interest points for distance measurement and a list of sorted configurable nodes names
         self.sorted_configurable_nodes_names = graph.get_configurable_sorted_nodes_names()
+
+        # Get interest points and output points set for distance measurement and set other helper datasets
+        # We define a separate set of output nodes of the model for the purpose of sensitivity computation.
         self.interest_points = get_mp_interest_points(graph,
                                                       fw_impl.count_node_for_mixed_precision_interest_points,
                                                       quant_config.num_interest_points_factor)
+
+        self.ips_distance_fns = []
+        self.ips_batch_axis = []
+        for n in self.interest_points:
+            self.ips_distance_fns.append(self.fw_impl.get_node_distance_fn(layer_class=n.layer_class,
+                                                                       framework_attrs=n.framework_attr,
+                                                                       compute_distance_fn=self.quant_config.compute_distance_fn))
+            self.ips_batch_axis.append(n.framework_attr.get(AXIS) if not isinstance(n, FunctionalNode)
+                                       else n.op_call_kwargs.get(AXIS))
+
+        self.output_points = [n.node for n in graph.get_outputs()]
+        self.out_ps_distance_fns = []
+        self.out_ps_batch_axis = []
+        for n in self.output_points:
+            self.out_ps_distance_fns.append(self.fw_impl.get_node_distance_fn(layer_class=n.layer_class,
+                                                                              framework_attrs=n.framework_attr,
+                                                                              compute_distance_fn=self.quant_config.compute_distance_fn))
+            self.out_ps_batch_axis.append(n.framework_attr.get(AXIS) if not isinstance(n, FunctionalNode)
+                                          else n.op_call_kwargs.get(AXIS))
+
+        # Setting lists with relative position of the interest points and output points in the list of all mp model activation tensors
+        graph_sorted_nodes = self.graph.get_topo_sorted_nodes()
+        all_out_tensors_indices = [graph_sorted_nodes.index(n) for n in self.interest_points + self.output_points]
+        global_ipts_indices = [graph_sorted_nodes.index(n) for n in self.interest_points]
+        global_out_pts_indices = [graph_sorted_nodes.index(n) for n in self.output_points]
+        self.ips_act_indices = [all_out_tensors_indices.index(i) for i in global_ipts_indices]
+        self.out_ps_act_indices = [all_out_tensors_indices.index(i) for i in global_out_pts_indices]
 
         # Build a mixed-precision model which can be configured to use different bitwidth in different layers.
         # And a baseline model.
@@ -132,15 +161,15 @@ class SensitivityEvaluation:
         self._configure_bitwidths_model(mp_model_configuration,
                                         node_idx)
 
-        # Compute the distance matrix
-        distance_matrix = self._build_distance_matrix()
+        # Compute the distance metric
+        ipts_distances, out_pts_distances = self._compute_distance()
 
         # Configure MP model back to the same configuration as the baseline model if baseline provided
         if baseline_mp_configuration is not None:
             self._configure_bitwidths_model(baseline_mp_configuration,
                                             node_idx)
 
-        return self._compute_mp_distance_measure(distance_matrix, self.quant_config.distance_weighting_method)
+        return self._compute_mp_distance_measure(ipts_distances, out_pts_distances, self.quant_config.distance_weighting_method)
 
     def _init_baseline_tensors_list(self):
         """
@@ -169,7 +198,7 @@ class SensitivityEvaluation:
 
         model_mp, _, conf_node2layers = self.fw_impl.model_builder(evaluation_graph,
                                                                    mode=ModelBuilderMode.MIXEDPRECISION,
-                                                                   append2output=self.interest_points,
+                                                                   append2output=self.interest_points + self.output_points,
                                                                    fw_info=self.fw_info)
 
         # Build a baseline model.
@@ -278,47 +307,39 @@ class SensitivityEvaluation:
         for current_layer in layers_to_config:
             self.set_layer_to_bitwidth(current_layer, mp_model_configuration[node_idx_to_configure])
 
-    def _compute_distance_matrix(self,
+    def _compute_points_distance(self,
                                  baseline_tensors: List[Any],
-                                 mp_tensors: List[Any]):
+                                 mp_tensors: List[Any],
+                                 points_distance_fns,
+                                 points_batch_axis):
         """
-        Compute the distance between the MP model's outputs and the baseline model's outputs
+        Compute the distance on the given set of points outputs between the MP model and the baseline model
         for each image in the batch that was inferred.
+
         Args:
-            baseline_tensors: Baseline model's output tensors.
-            mp_tensors: MP model's output tensors.
+            baseline_tensors: Baseline model's output tensors of the given points.
+            mp_tensors: MP model's output tensors pf the given points.
+
         Returns:
-            A distance matrix that maps each node's index to the distance between this node's output
+            A distance vector that maps each node's index in the given nodes list to the distance between this node's output
              and the baseline model's output for all images that were inferred.
         """
 
-        assert len(baseline_tensors) == len(self.interest_points)
-        num_interest_points = len(baseline_tensors)
-        num_samples = len(baseline_tensors[0])
-        distance_matrix = np.ndarray((num_interest_points, num_samples))
+        distance_v = [fn(x, y, batch=True, axis=axis) for fn, x, y, axis
+                      in zip(points_distance_fns, baseline_tensors, mp_tensors, points_batch_axis)]
 
-        for i in range(num_interest_points):
-            point_node = self.interest_points[i]
-            point_distance_fn = \
-                self.fw_impl.get_node_distance_fn(layer_class=point_node.layer_class,
-                                                  framework_attrs=point_node.framework_attr,
-                                                  compute_distance_fn=self.quant_config.compute_distance_fn)
+        return np.asarray(distance_v)
 
-            axis = point_node.framework_attr.get(AXIS) if not isinstance(point_node, FunctionalNode) \
-                else point_node.op_call_kwargs.get(AXIS)
-
-            distance_matrix[i] = point_distance_fn(baseline_tensors[i], mp_tensors[i], batch=True, axis=axis)
-
-        return distance_matrix
-
-    def _build_distance_matrix(self):
+    def _compute_distance(self) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Builds a matrix that contains the distances between the baseline and MP models for each interest point.
-        Returns: A distance matrix.
+        Computing the interest points distance and the output points distance, and using them to build a
+        unified distance vector.
+
+        Returns: A distance vector.
         """
-        # List of distance matrices. We create a distance matrix for each sample from the representative_data_gen
-        # and merge all of them eventually.
-        distance_matrices = []
+
+        ipts_per_batch_distance = []
+        out_pts_per_batch_distance = []
 
         # Compute the distance matrix for num_of_images images.
         for images, baseline_tensors in zip(self.images_batches, self.baseline_tensors_list):
@@ -326,32 +347,49 @@ class SensitivityEvaluation:
             mp_tensors = self.fw_impl.sensitivity_eval_inference(self.model_mp, images)
             mp_tensors = self.fw_impl.to_numpy(mp_tensors)
 
-            # Build distance matrix: similarity between the baseline model to the float model
+            # Compute distance: similarity between the baseline model to the float model
             # in every interest point for every image in the batch.
-            distance_matrices.append(self._compute_distance_matrix(baseline_tensors, mp_tensors))
+
+            ips_distance = self._compute_points_distance(baseline_tensors[self.ips_act_indices],
+                                                         mp_tensors[self.ips_act_indices],
+                                                         self.ips_distance_fns,
+                                                         self.ips_batch_axis)
+            outputs_distance = self._compute_points_distance(baseline_tensors[self.out_ps_act_indices],
+                                                             mp_tensors[self.out_ps_act_indices],
+                                                             self.out_ps_distance_fns,
+                                                             self.out_ps_batch_axis)
+
+            ipts_per_batch_distance.append(ips_distance)
+            out_pts_per_batch_distance.append(outputs_distance)
 
         # Merge all distance matrices into a single distance matrix.
-        distance_matrix = np.concatenate(distance_matrices, axis=1)
+        ipts_distances = np.concatenate(ipts_per_batch_distance, axis=1)
+        out_pts_distances = np.concatenate(out_pts_per_batch_distance, axis=1)
 
-        return distance_matrix
+        return ipts_distances, out_pts_distances
 
     @staticmethod
-    def _compute_mp_distance_measure(distance_matrix: np.ndarray, metrics_weights_fn: Callable) -> float:
+    def _compute_mp_distance_measure(ipts_distances: np.ndarray,
+                                     out_pts_distances: np.ndarray,
+                                     metrics_weights_fn: Callable) -> float:
         """
         Computes the final distance value out of a distance matrix.
 
         Args:
-            distance_matrix: A matrix that contains the distances between the baseline and MP models
+            ipts_distances: A matrix that contains the distances between the baseline and MP models
                 for each interest point.
-            metrics_weights_fn:
+            out_pts_distances: A matrix that contains the distances between the baseline and MP models
+            for each output point.
+            metrics_weights_fn: A callable that produces the scores to compute weighted distance for interest points.
 
         Returns: Distance value.
         """
         # Compute the distance between the baseline model's outputs and the MP model's outputs.
         # The distance is the mean of distances over all images in the batch that was inferred.
-        mean_distance_per_layer = distance_matrix.mean(axis=1)
+        mean_distance_per_layer = ipts_distances.mean(axis=1)
         # Use weights such that every layer's distance is weighted differently (possibly).
-        return np.average(mean_distance_per_layer, weights=metrics_weights_fn(distance_matrix))
+        return np.average(mean_distance_per_layer, weights=metrics_weights_fn(ipts_distances)) \
+            + out_pts_distances.mean(axis=1)
 
     def _get_images_batches(self, num_of_images: int) -> List[Any]:
         """
@@ -391,7 +429,8 @@ def get_mp_interest_points(graph: Graph,
                            num_ip_factor: float) -> List[BaseNode]:
     """
     Gets a list of interest points for the mixed precision metric computation.
-    The list is constructed from a filtered set of the convolutions nodes in the graph.
+    The list is constructed from a filtered set of nodes in the graph.
+    Note that the output layers are separated from the interest point set for metric computation purposes.
 
     Args:
         graph: Graph to search for its MP configuration.
@@ -407,11 +446,8 @@ def get_mp_interest_points(graph: Graph,
 
     interest_points_nodes = bound_num_interest_points(ip_nodes, num_ip_factor)
 
-    # We add output layers of the model to interest points
-    # in order to consider the model's output in the distance metric computation (and also to make sure
-    # all configurable layers are included in the configured mp model for metric computation purposes)
-    output_nodes = [n.node for n in graph.get_outputs() if n.node not in interest_points_nodes]
-    interest_points = interest_points_nodes + output_nodes
+    output_nodes = [n.node for n in graph.get_outputs()]
+    interest_points = [n for n in interest_points_nodes if n not in output_nodes]
 
     return interest_points
 
