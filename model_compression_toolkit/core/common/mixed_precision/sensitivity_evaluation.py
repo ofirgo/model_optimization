@@ -385,30 +385,6 @@ class SensitivityEvaluation:
                                f'only {samples_count} were generated')
         return images_batches
 
-    def _update_ips_with_outputs_replacements(self):
-        """
-        Updates the list of interest points with the set of pre-calculated replacement outputs.
-        Also, returns the indices of all output nodes (original, replacements and nodes in between them) in a
-        topological sorted interest points list (for later use in gradients computation and normalization).
-
-        Returns: A list of indices of the output nodes in the sorted interest points list.
-
-        """
-
-        assert self.outputs_replacement_nodes is not None, \
-            "Trying to update interest points list with new output nodes but outputs_replacement_nodes list is None."
-
-        replacement_outputs_to_ip = [r_node for r_node in self.outputs_replacement_nodes if
-                                     r_node not in self.interest_points]
-        updated_interest_points = self.interest_points + replacement_outputs_to_ip
-
-        # Re-sort interest points in a topological order according to the graph's sort
-        self.interest_points = [n for n in self.graph.get_topo_sorted_nodes() if n in updated_interest_points]
-
-        output_indices = [self.interest_points.index(n.node) for n in self.graph.get_outputs()]
-        replacement_indices = [self.interest_points.index(n) for n in self.outputs_replacement_nodes]
-        return list(set(output_indices + replacement_indices))
-
 
 def get_mp_interest_points(graph: Graph,
                            interest_points_classifier: Callable,
@@ -438,32 +414,6 @@ def get_mp_interest_points(graph: Graph,
     interest_points = interest_points_nodes + output_nodes
 
     return interest_points
-
-
-def get_output_replacement_nodes(graph: Graph,
-                                 fw_impl: Any) -> List[BaseNode]:
-    """
-    If a model's output node is not compatible for the task of gradients computation we need to find a predecessor
-    node in the model's graph representation which is compatible and add it to the set of interest points and use it
-    for the gradients' computation. This method searches for this predecessor node for each output of the model.
-
-    Args:
-        graph: Graph to search for replacement output nodes.
-        fw_impl: FrameworkImplementation object with a specific framework methods implementation.
-
-    Returns: A list of output replacement nodes.
-
-    """
-    replacement_outputs = []
-    for n in graph.get_outputs():
-        prev_node = n.node
-        while not fw_impl.is_node_compatible_for_metric_outputs(prev_node):
-            prev_node = graph.get_prev_nodes(n.node)
-            assert len(prev_node) == 1, "A none MP compatible output node has multiple inputs, " \
-                                        "which is incompatible for metric computation."
-            prev_node = prev_node[0]
-        replacement_outputs.append(prev_node)
-    return replacement_outputs
 
 
 def bound_num_interest_points(sorted_ip_list: List[BaseNode], num_ip_factor: float) -> List[BaseNode]:

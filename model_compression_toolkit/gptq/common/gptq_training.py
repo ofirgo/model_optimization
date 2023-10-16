@@ -310,28 +310,6 @@ class GPTQTrainer(ABC):
         raise NotImplemented(f'{self.__class__.__name__} have to implement the '
                              f'framework\'s update_graph method.')  # pragma: no cover
 
-    def _get_model_output_replacement(self) -> List[BaseNode]:
-        """
-        If a model's output node is not compatible for the task of gradients computation we need to find a predecessor
-        node in the model's graph representation which is compatible and use it for the gradients' computation.
-        This method searches for this predecessor node for each output of the model.
-
-        Returns: A list of output replacement nodes.
-
-        """
-
-        replacement_outputs = []
-        for n in self.graph_float.get_outputs():
-            prev_node = n.node
-            while not self.fw_impl.is_output_node_compatible_for_hessian_computation(prev_node):
-                prev_node = self.graph_float.get_prev_nodes(n.node)
-                assert len(prev_node) == 1, "A none compatible output node has multiple inputs, " \
-                                            "which is incompatible for metric computation."
-                prev_node = prev_node[0]
-            replacement_outputs.append(prev_node)
-        return replacement_outputs
-
-
 def gptq_training(graph_float: Graph,
                   graph_quant: Graph,
                   gptq_config: GradientPTQConfig,

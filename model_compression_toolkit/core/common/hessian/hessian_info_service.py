@@ -13,8 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-import numpy as np
-from typing import Callable, List, Any
+from typing import Callable, List
 
 from model_compression_toolkit.constants import HESSIAN_NUM_ITERATIONS
 from model_compression_toolkit.core.common import Graph
@@ -53,12 +52,6 @@ class HessianInfoService:
         """
         self.graph = graph
 
-        for output_node in graph.get_outputs():
-            if not fw_impl.is_output_node_compatible_for_hessian_computation(output_node.node):
-                Logger.error(f"All graph outputs should support metric outputs, but node {output_node.node} "
-                             f"was found with layer type {output_node.node.type} A model with this layer type is not "
-                             f"supported for Hessian info computation.")
-
         # Create a representative_data_gen with batch size of 1
         self.representative_dataset = partial(fw_impl.sample_single_representative_dataset,
                                               representative_dataset=representative_dataset)
@@ -66,13 +59,13 @@ class HessianInfoService:
         self.fw_impl = fw_impl
         self.num_iterations_for_approximation = num_iterations_for_approximation
 
-        self.trace_hessian_request_to_score_list = {}
+        self.hessian_info_request_to_score_list = {}
 
     def _clear_saved_hessian_info(self):
         """Clears the saved info approximations."""
-        self.trace_hessian_request_to_score_list={}
+        self.hessian_info_request_to_score_list = {}
 
-    def count_saved_info_of_request(self, hessian_request:TraceHessianRequest) -> int:
+    def count_saved_info_of_request(self, hessian_request: TraceHessianRequest) -> int:
         """
         Counts the saved approximations of Hessian info (traces, for now) for a specific request.
         If some approximations were computed for this request before, the amount of approximations (per image)
@@ -85,8 +78,7 @@ class HessianInfoService:
             Number of saved approximations for the given request.
         """
         # Check if the request is in the saved info and return its count, otherwise return 0
-        return len(self.trace_hessian_request_to_score_list.get(hessian_request, []))
-
+        return len(self.hessian_info_request_to_score_list.get(hessian_request, []))
 
     def compute(self, trace_hessian_request:TraceHessianRequest):
         """
@@ -111,10 +103,10 @@ class HessianInfoService:
         trace_hessian = fw_hessian_calculator.compute()
 
         # Store the computed approximation in the saved info
-        if trace_hessian_request in self.trace_hessian_request_to_score_list:
-            self.trace_hessian_request_to_score_list[trace_hessian_request].append(trace_hessian)
+        if trace_hessian_request in self.hessian_info_request_to_score_list:
+            self.hessian_info_request_to_score_list[trace_hessian_request].append(trace_hessian)
         else:
-            self.trace_hessian_request_to_score_list[trace_hessian_request] = [trace_hessian]
+            self.hessian_info_request_to_score_list[trace_hessian_request] = [trace_hessian]
 
 
 
@@ -141,7 +133,7 @@ class HessianInfoService:
         self._populate_saved_info_to_size(trace_hessian_request, required_size)
 
         # Return the saved approximations for the given request
-        return self.trace_hessian_request_to_score_list[trace_hessian_request]
+        return self.hessian_info_request_to_score_list[trace_hessian_request]
 
 
     def _populate_saved_info_to_size(self,
