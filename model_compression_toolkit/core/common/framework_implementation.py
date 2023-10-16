@@ -399,21 +399,20 @@ class FrameworkImplementation(ABC):
 
 
     @abstractmethod
-    def is_node_compatible_for_metric_outputs(self,
-                                                 node: BaseNode) -> bool:
+    def is_output_node_compatible_for_hessian_computation(self,
+                                                          node: BaseNode) -> bool:
         """
-        Checks and returns whether the given node is compatible as output for metric computation
-        purposes and gradient-based weights calculation.
+        Checks and returns whether the given node is compatible as output for Hessian-based information computation.
 
         Args:
             node: A BaseNode object.
 
-        Returns: Whether the node is compatible as output for metric computation or not.
+        Returns: Whether the node is compatible as output for Hessian-based information computation.
 
         """
 
         raise NotImplemented(f'{self.__class__.__name__} have to implement the '
-                             f'framework\'s is_node_compatible_for_metric_outputs method.')  # pragma: no cover
+                             f'framework\'s is_output_node_compatible_for_hessian_computation method.')  # pragma: no cover
 
     @abstractmethod
     def get_node_mac_operations(self,

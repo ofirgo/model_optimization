@@ -17,7 +17,7 @@ import copy
 import numpy as np
 from typing import Callable, Any, List
 
-from model_compression_toolkit.constants import AXIS, HESSIAN_OUTPUT_ALPHA
+from model_compression_toolkit.constants import AXIS
 from model_compression_toolkit.core import FrameworkInfo, MixedPrecisionQuantizationConfigV2
 from model_compression_toolkit.core.common import Graph, BaseNode
 from model_compression_toolkit.core.common.graph.functional_node import FunctionalNode
@@ -76,28 +76,13 @@ class SensitivityEvaluation:
         self.fw_impl = fw_impl
         self.set_layer_to_bitwidth = set_layer_to_bitwidth
         self.disable_activation_for_metric = disable_activation_for_metric
-        if self.quant_config.use_grad_based_weights:
-            if not isinstance(hessian_info_service, HessianInfoService):
-                Logger.error(f"When using hessian based approximations for sensitivity evaluation, "
-                             f" an HessianInfoService object must be provided but is {hessian_info_service}")
-            self.hessian_info_service = hessian_info_service
+        self.hessian_info_service = hessian_info_service
 
         # Get interest points for distance measurement and a list of sorted configurable nodes names
         self.sorted_configurable_nodes_names = graph.get_configurable_sorted_nodes_names()
         self.interest_points = get_mp_interest_points(graph,
                                                       fw_impl.count_node_for_mixed_precision_interest_points,
                                                       quant_config.num_interest_points_factor)
-
-        self.outputs_replacement_nodes = None
-        self.output_nodes_indices = None
-        if self.quant_config.use_grad_based_weights is True:
-            # Getting output replacement (if needed) - if a model's output layer is not compatible for the task of
-            # gradients computation then we find a predecessor layer which is compatible,
-            # add it to the set of interest points and use it for the gradients' computation.
-            # Note that we need to modify the set of interest points before building the models,
-            # therefore, it is separated from the part where we compute the actual gradient weights.
-            self.outputs_replacement_nodes = get_output_replacement_nodes(graph, fw_impl)
-            self.output_nodes_indices = self._update_ips_with_outputs_replacements()
 
         # Build a mixed-precision model which can be configured to use different bitwidth in different layers.
         # And a baseline model.
@@ -117,16 +102,12 @@ class SensitivityEvaluation:
         # Initiating baseline_tensors_list since it is not initiated in SensitivityEvaluationManager init.
         self._init_baseline_tensors_list()
 
-        # Computing gradient-based weights for weighted average distance metric computation (only if requested),
+        # Computing Hessian-based scores for weighted average distance metric computation (only if requested),
         # and assigning distance_weighting method accordingly.
-        self.interest_points_gradients = None
-        if self.quant_config.use_grad_based_weights is True:
-            assert self.outputs_replacement_nodes is not None and self.output_nodes_indices is not None, \
-                f"{self.outputs_replacement_nodes} and {self.output_nodes_indices} " \
-                f"should've been assigned before computing the gradient-based weights."
-
-            self.interest_points_gradients = self._compute_gradient_based_weights()
-            self.quant_config.distance_weighting_method = lambda d: self.interest_points_gradients
+        self.interest_points_hessians = None
+        if self.quant_config.use_hessian_based_scores is True:
+            self.interest_points_hessians = self._compute_hessian_based_scores()
+            self.quant_config.distance_weighting_method = lambda d: self.interest_points_hessians
 
     def compute_metric(self,
                        mp_model_configuration: List[int],
@@ -198,11 +179,11 @@ class SensitivityEvaluation:
 
         return baseline_model, model_mp, conf_node2layers
 
-    def _compute_gradient_based_weights(self) -> np.ndarray:
+    def _compute_hessian_based_scores(self) -> np.ndarray:
         """
-        Compute gradient-based weights using trace Hessian approximations for each interest point.
+        Compute Hessian-based scores for each interest point.
 
-        Returns: A vector of weights, one for each interest point,
+        Returns: A vector of scores, one for each interest point,
          to be used for the distance metric weighted average computation.
 
         """
@@ -239,9 +220,7 @@ class SensitivityEvaluation:
                 approx_by_image_per_interest_point.append(compare_point_to_trace_hessian_approximations[target_node][image_idx][0])
 
             if self.quant_config.norm_weights:
-                approx_by_image_per_interest_point = hessian_utils.normalize_weights(trace_hessian_approximations=approx_by_image_per_interest_point,
-                                                                                     outputs_indices=self.output_nodes_indices,
-                                                                                     alpha=HESSIAN_OUTPUT_ALPHA)
+                approx_by_image_per_interest_point = hessian_utils.normalize_weights(trace_hessian_approximations=approx_by_image_per_interest_point)
 
             # Append the approximations for the current image to the main list
             approx_by_image.append(approx_by_image_per_interest_point)

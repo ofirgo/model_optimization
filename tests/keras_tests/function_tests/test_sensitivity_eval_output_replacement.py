@@ -25,7 +25,6 @@ from model_compression_toolkit.core.keras.keras_implementation import KerasImple
 from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.latest import generate_keras_tpc
 from tests.common_tests.helpers.prep_graph_for_func_test import prepare_graph_with_configs, \
     prepare_graph_with_quantization_parameters
-import model_compression_toolkit.core.common.hessian as hess
 
 keras = tf.keras
 layers = keras.layers
@@ -69,15 +68,10 @@ class TestSensitivityEvalWithOutputReplacementNodes(unittest.TestCase):
                                                            input_shape=(1, 16, 16, 3),
                                                            mixed_precision_enabled=True)
 
-        hessian_info_service = hess.HessianInfoService(graph=graph,
-                                                        representative_dataset=representative_dataset,
-                                                        fw_impl=keras_impl)
-
         se = keras_impl.get_sensitivity_evaluator(graph,
-                                                  MixedPrecisionQuantizationConfigV2(use_grad_based_weights=True),
+                                                  MixedPrecisionQuantizationConfigV2(use_hessian_based_scores=True),
                                                   representative_dataset,
-                                                  DEFAULT_KERAS_INFO,
-                                                  hessian_info_service=hessian_info_service)
+                                                  DEFAULT_KERAS_INFO)
 
         # If the output replacement nodes for MP sensitivity evaluation has been computed correctly then the ReLU layer
         # should be added to the interest points and included in the output nodes list for metric computation purposes.
@@ -90,15 +84,11 @@ class TestSensitivityEvalWithOutputReplacementNodes(unittest.TestCase):
 
     def test_output_replacement_argmax(self):
         model = argmax_output_model((16, 16, 3))
-        with self.assertRaises(Exception) as e:
-            self.verify_test_for_model(model)
-        self.assertTrue("All graph outputs should support metric outputs" in str(e.exception))
+        self.verify_test_for_model(model)
 
     def test_output_replacement_softmax(self):
         model = softmax_output_model((16, 16, 3))
-        with self.assertRaises(Exception) as e:
-            self.verify_test_for_model(model)
-        self.assertTrue("All graph outputs should support metric outputs" in str(e.exception))
+        self.verify_test_for_model(model)
 
 
 if __name__ == '__main__':

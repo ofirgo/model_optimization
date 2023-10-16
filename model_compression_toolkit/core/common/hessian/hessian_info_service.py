@@ -53,6 +53,12 @@ class HessianInfoService:
         """
         self.graph = graph
 
+        for output_node in graph.get_outputs():
+            if not fw_impl.is_output_node_compatible_for_hessian_computation(output_node.node):
+                Logger.error(f"All graph outputs should support metric outputs, but node {output_node.node} "
+                             f"was found with layer type {output_node.node.type} A model with this layer type is not "
+                             f"supported for Hessian info computation.")
+
         # Create a representative_data_gen with batch size of 1
         self.representative_dataset = partial(fw_impl.sample_single_representative_dataset,
                                               representative_dataset=representative_dataset)

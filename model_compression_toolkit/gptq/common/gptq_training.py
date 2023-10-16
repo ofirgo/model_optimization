@@ -323,7 +323,7 @@ class GPTQTrainer(ABC):
         replacement_outputs = []
         for n in self.graph_float.get_outputs():
             prev_node = n.node
-            while not self.fw_impl.is_node_compatible_for_metric_outputs(prev_node):
+            while not self.fw_impl.is_output_node_compatible_for_hessian_computation(prev_node):
                 prev_node = self.graph_float.get_prev_nodes(n.node)
                 assert len(prev_node) == 1, "A none compatible output node has multiple inputs, " \
                                             "which is incompatible for metric computation."

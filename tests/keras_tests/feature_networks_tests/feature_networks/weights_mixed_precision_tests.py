@@ -377,8 +377,8 @@ class MixedPercisionSearchLastLayerDistanceTest(MixedPercisionBaseTest):
 
     def get_mixed_precision_v2_config(self):
         return mct.core.MixedPrecisionQuantizationConfigV2(num_of_images=1,
-                                                      distance_weighting_method=get_last_layer_weights,
-                                                      use_grad_based_weights=False)
+                                                           distance_weighting_method=get_last_layer_weights,
+                                                           use_hessian_based_scores=False)
 
     def get_kpi(self):
         # kpi is infinity -> should give best model - 8bits
