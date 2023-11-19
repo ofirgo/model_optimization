@@ -153,9 +153,8 @@ class SensitivityEvaluation:
         return distance_fns_list, batch_axis_list
 
     def compute_metric(self,
-                       mp_model_configuration: List[int],
-                       node_idx: List[int] = None,
-                       baseline_mp_configuration: List[int] = None) -> float:
+                       bitwidth_idx: int,
+                       node_idx: int) -> float:
         """
         Compute the sensitivity metric of the MP model for a given configuration (the sensitivity
         is computed based on the similarity of the interest points' outputs between the MP model
@@ -170,21 +169,60 @@ class SensitivityEvaluation:
         Returns:
             The sensitivity metric of the MP model for a given configuration.
         """
+        if node_idx >= len(self.interest_points):
+            n = self.model_mp.__getattr__(self.output_points[node_idx - len(self.interest_points)].name)
+            q = n.weights_quantizers['weight']
 
-        # Configure MP model with the given configuration.
-        self._configure_bitwidths_model(mp_model_configuration,
-                                        node_idx)
+            score = np.power(np.linalg.norm((q.quantized_weights[0] - q.quantized_weights[bitwidth_idx])
+                                            .detach().cpu().numpy().flatten(), 2), 2)
+        else:
+            n = self.model_mp.__getattr__(self.interest_points[node_idx].name)
+            q = n.weights_quantizers['weight']
 
-        # Compute the distance metric
-        ipts_distances, out_pts_distances = self._compute_distance()
+            # score = (self.interest_points_hessians[node_idx] *
+            #          np.power(np.linalg.norm(((q.quantized_weights[0] - q.quantized_weights[bitwidth_idx])
+            #                                   .detach().cpu().numpy()).flatten(), 2), 2))
 
-        # Configure MP model back to the same configuration as the baseline model if baseline provided
-        if baseline_mp_configuration is not None:
-            self._configure_bitwidths_model(baseline_mp_configuration,
-                                            node_idx)
+            score =  np.power(np.linalg.norm((np.sqrt(self.interest_points_hessians[node_idx]) *
+                                         (q.quantized_weights[0] -
+                                          q.quantized_weights[bitwidth_idx])
+                                         .detach().cpu().numpy()).flatten(), 2), 2)
 
-        return self._compute_mp_distance_measure(ipts_distances, out_pts_distances,
-                                                 self.quant_config.distance_weighting_method)
+        return score
+
+    # def compute_metric(self,
+    #                    mp_model_configuration: List[int],
+    #                    node_idx: List[int] = None,
+    #                    baseline_mp_configuration: List[int] = None) -> float:
+    #     """
+    #     Compute the sensitivity metric of the MP model for a given configuration (the sensitivity
+    #     is computed based on the similarity of the interest points' outputs between the MP model
+    #     and the float model).
+    #
+    #     Args:
+    #         mp_model_configuration: Bitwidth configuration to use to configure the MP model.
+    #         node_idx: A list of nodes' indices to configure (instead of using the entire mp_model_configuration).
+    #         baseline_mp_configuration: A mixed-precision configuration to set the model back to after modifying it to
+    #             compute the metric for the given configuration.
+    #
+    #     Returns:
+    #         The sensitivity metric of the MP model for a given configuration.
+    #     """
+    #
+    #     # Configure MP model with the given configuration.
+    #     self._configure_bitwidths_model(mp_model_configuration,
+    #                                     node_idx)
+    #
+    #     # Compute the distance metric
+    #     ipts_distances, out_pts_distances = self._compute_distance()
+    #
+    #     # Configure MP model back to the same configuration as the baseline model if baseline provided
+    #     if baseline_mp_configuration is not None:
+    #         self._configure_bitwidths_model(baseline_mp_configuration,
+    #                                         node_idx)
+    #
+    #     return self._compute_mp_distance_measure(ipts_distances, out_pts_distances,
+    #                                              self.quant_config.distance_weighting_method)
 
     def _init_baseline_tensors_list(self):
         """
@@ -238,8 +276,10 @@ class SensitivityEvaluation:
         for target_node in self.interest_points:
             # Create a request for trace Hessian approximation with specific configurations
             # (here we use per-tensor approximation of the Hessian's trace w.r.t the node's activations)
-            trace_hessian_request = TraceHessianRequest(mode=HessianMode.ACTIVATION,
-                                                        granularity=HessianInfoGranularity.PER_TENSOR,
+            # trace_hessian_request = TraceHessianRequest(mode=HessianMode.ACTIVATION,
+            trace_hessian_request = TraceHessianRequest(mode=HessianMode.WEIGHTS,
+                                                        # granularity=HessianInfoGranularity.PER_TENSOR,
+                                                        granularity=HessianInfoGranularity.PER_ELEMENT,
                                                         target_node=target_node)
 
             # Fetch the trace Hessian approximations for the current interest point
@@ -249,29 +289,32 @@ class SensitivityEvaluation:
             compare_point_to_trace_hessian_approximations[target_node] = node_approximations
 
         # List to store the approximations for each image
-        approx_by_image = []
+        # approx_by_image = []
+        # approx_by_node = []
         # Iterate over each image
-        for image_idx in range(self.quant_config.num_of_images):
+        # for image_idx in range(self.quant_config.num_of_images):
             # List to store approximations for the current image for each interest point
-            approx_by_image_per_interest_point = []
+            # approx_by_image_per_interest_point = []
             # Iterate over each interest point to gather approximations
-            for target_node in self.interest_points:
+            # for target_node in self.interest_points:
                 # Ensure the approximation for the current interest point and image is a list
-                assert isinstance(compare_point_to_trace_hessian_approximations[target_node][image_idx], list)
+                # assert isinstance(compare_point_to_trace_hessian_approximations[target_node][image_idx], list)
                 # Ensure the approximation list contains only one element (since, granularity is per-tensor)
-                assert len(compare_point_to_trace_hessian_approximations[target_node][image_idx]) == 1
+                # assert len(compare_point_to_trace_hessian_approximations[target_node][image_idx]) == 1
                 # Append the single approximation value to the list for the current image
-                approx_by_image_per_interest_point.append(compare_point_to_trace_hessian_approximations[target_node][image_idx][0])
+                # approx_by_image_per_interest_point.append(compare_point_to_trace_hessian_approximations[target_node][image_idx][0])
 
-            if self.quant_config.norm_scores:
-                approx_by_image_per_interest_point = \
-                    hessian_utils.normalize_scores(hessian_approximations=approx_by_image_per_interest_point)
+            # if self.quant_config.norm_scores:
+            #     approx_by_image_per_interest_point = \
+            #         hessian_utils.normalize_scores(hessian_approximations=approx_by_image_per_interest_point)
 
             # Append the approximations for the current image to the main list
-            approx_by_image.append(approx_by_image_per_interest_point)
+            # approx_by_image.append(approx_by_image_per_interest_point)
+            # approx_by_node.append(approx_by_image_per_interest_point)
 
         # Return the mean approximation value across all images for each interest point
-        return np.mean(approx_by_image, axis=0)
+        # return np.mean(approx_by_node, axis=0)
+        return [np.mean(np.stack(v, axis=0), axis=0) for k, v in compare_point_to_trace_hessian_approximations.items()]
 
     def _configure_bitwidths_model(self,
                                    mp_model_configuration: List[int],

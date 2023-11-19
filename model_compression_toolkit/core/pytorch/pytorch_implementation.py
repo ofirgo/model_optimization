@@ -398,8 +398,9 @@ class PytorchImplementation(FrameworkImplementation):
         Returns: True if the node should be considered an interest point, False otherwise.
         """
 
-        if node.type in [Conv2d, Linear, ConvTranspose2d, Sigmoid, sigmoid, Softmax, softmax, operator.add, add, cat,
-                         operator.concat]:
+        # if node.type in [Conv2d, Linear, ConvTranspose2d, Sigmoid, sigmoid, Softmax, softmax, operator.add, add, cat,
+        #                  operator.concat]:
+        if node.type in [Conv2d, Linear, ConvTranspose2d]:
             return True
         return False
 

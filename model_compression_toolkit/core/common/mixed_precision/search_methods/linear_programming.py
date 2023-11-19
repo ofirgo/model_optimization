@@ -255,13 +255,13 @@ def _build_layer_to_metrics_mapping(search_manager: MixedPrecisionSearchManager,
     Logger.info('Starting to evaluate metrics')
     layer_to_metrics_mapping = {}
 
-    is_bops_target_kpi = target_kpi.bops < np.inf
-
-    if is_bops_target_kpi:
-        origin_max_config = search_manager.config_reconstruction_helper.reconstruct_config_from_virtual_graph(search_manager.max_kpi_config)
-        max_config_value = search_manager.compute_metric_fn(origin_max_config)
-    else:
-        max_config_value = search_manager.compute_metric_fn(search_manager.max_kpi_config)
+    # is_bops_target_kpi = target_kpi.bops < np.inf
+    #
+    # if is_bops_target_kpi:
+    #     origin_max_config = search_manager.config_reconstruction_helper.reconstruct_config_from_virtual_graph(search_manager.max_kpi_config)
+    #     max_config_value = search_manager.compute_metric_fn(origin_max_config)
+    # else:
+    #     max_config_value = search_manager.compute_metric_fn(search_manager.max_kpi_config)
 
     for node_idx, layer_possible_bitwidths_indices in tqdm(search_manager.layer_to_bitwidth_mapping.items(),
                                                            total=len(search_manager.layer_to_bitwidth_mapping)):
@@ -270,32 +270,32 @@ def _build_layer_to_metrics_mapping(search_manager: MixedPrecisionSearchManager,
         for bitwidth_idx in layer_possible_bitwidths_indices:
             if search_manager.max_kpi_config[node_idx] == bitwidth_idx:
                 # This is a computation of the metric for the max configuration, assign pre-calculated value
-                layer_to_metrics_mapping[node_idx][bitwidth_idx] = max_config_value
+                layer_to_metrics_mapping[node_idx][bitwidth_idx] = 0
                 continue
 
             # Create a configuration that differs at one layer only from the baseline model
-            mp_model_configuration = search_manager.max_kpi_config.copy()
-            mp_model_configuration[node_idx] = bitwidth_idx
+            # mp_model_configuration = search_manager.max_kpi_config.copy()
+            # mp_model_configuration[node_idx] = bitwidth_idx
 
             # Build a distance matrix using the function we got from the framework implementation.
-            if is_bops_target_kpi:
-                # Reconstructing original graph's configuration from virtual graph's configuration
-                origin_mp_model_configuration = \
-                    search_manager.config_reconstruction_helper.reconstruct_config_from_virtual_graph(
-                        mp_model_configuration,
-                        changed_virtual_nodes_idx=[node_idx],
-                        original_base_config=origin_max_config)
-                origin_changed_nodes_indices = [i for i, c in enumerate(origin_max_config) if
-                                                c != origin_mp_model_configuration[i]]
-                layer_to_metrics_mapping[node_idx][bitwidth_idx] = search_manager.compute_metric_fn(
-                    origin_mp_model_configuration,
-                    origin_changed_nodes_indices,
-                    origin_max_config)
-            else:
-                layer_to_metrics_mapping[node_idx][bitwidth_idx] = search_manager.compute_metric_fn(
-                    mp_model_configuration,
-                    [node_idx],
-                    search_manager.max_kpi_config)
+            # if is_bops_target_kpi:
+            #     # Reconstructing original graph's configuration from virtual graph's configuration
+            #     origin_mp_model_configuration = \
+            #         search_manager.config_reconstruction_helper.reconstruct_config_from_virtual_graph(
+            #             mp_model_configuration,
+            #             changed_virtual_nodes_idx=[node_idx],
+            #             original_base_config=origin_max_config)
+            #     origin_changed_nodes_indices = [i for i, c in enumerate(origin_max_config) if
+            #                                     c != origin_mp_model_configuration[i]]
+            #     layer_to_metrics_mapping[node_idx][bitwidth_idx] = search_manager.compute_metric_fn(
+            #         origin_mp_model_configuration,
+            #         origin_changed_nodes_indices,
+            #         origin_max_config)
+            # else:
+            layer_to_metrics_mapping[node_idx][bitwidth_idx] = search_manager.compute_metric_fn(
+                bitwidth_idx,
+                node_idx)
+                # search_manager.max_kpi_config)
 
     # Finalize distance metric mapping
     search_manager.finalize_distance_metric(layer_to_metrics_mapping)
