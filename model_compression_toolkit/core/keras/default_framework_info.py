@@ -36,6 +36,7 @@ from model_compression_toolkit.core.keras.quantizer.fake_quant_builder import po
 Map each layer to a list of its' weights attributes that should get quantized.
 If a layer that is not listed here is queried, [None] is returned.
 """
+# TODO: set in the TPC if we quantize the attr or not (by default all attr are quantized)
 KERNEL_ATTRIBUTES = DefaultDict({Conv2D: [KERNEL],
                                  DepthwiseConv2D: [DEPTHWISE_KERNEL],
                                  Dense: [KERNEL],
@@ -47,6 +48,7 @@ Map a layer to its kernel's output and input channels indices.
 Map's values are tuples of (output_channel_index, input_channel_index).
 Default value is returned for layers that are not included.
 """
+# TODO: needs to be defined in the TPC
 DEFAULT_CHANNEL_AXIS_DICT = DefaultDict({Conv2D: (3, 2),
                                          DepthwiseConv2D: (2, 2),
                                          Dense: (1, 0),

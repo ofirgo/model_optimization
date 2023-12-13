@@ -59,12 +59,15 @@ def calculate_quantization_params(graph: Graph,
         for candidate_qc in n.candidates_quantization_cfg:
             if n.is_weights_quantization_enabled():
                 # If node's weights should be quantized, we compute its weights' quantization parameters
-                output_channels_axis, _ = get_channels_axis(candidate_qc.weights_quantization_cfg, fw_info, n.type)
-                weights_params = get_weights_qparams(n.get_weights_by_keys(fw_impl.constants.KERNEL),
-                                                     candidate_qc.weights_quantization_cfg,
-                                                     output_channels_axis)
-                candidate_qc.weights_quantization_cfg.set_weights_quantization_param(weights_params)
-                candidate_qc.weights_quantization_cfg.weights_channels_axis = output_channels_axis
+                for attr_name, w in n.weights.items():  # TODO: replace with a proper getter method for node weights
+                    output_channels_axis, _ = (0, None) if fw_impl.constants.KERNEL not in attr_name else (
+                        get_channels_axis(candidate_qc.weights_quantization_cfg, fw_info, n.type))
+                    weights_params = get_weights_qparams(w,
+                                                         candidate_qc.weights_quantization_cfg,
+                                                         output_channels_axis)
+                    candidate_qc.weights_quantization_cfg.set_weights_quantization_param(attr_name, weights_params)
+                    if fw_impl.constants.KERNEL in attr_name:
+                        candidate_qc.weights_quantization_cfg.weights_channels_axis = output_channels_axis
             if n.is_activation_quantization_enabled():
                 # If node's activations should be quantized as well, we compute its activation quantization parameters
                 activation_params = get_activations_qparams(

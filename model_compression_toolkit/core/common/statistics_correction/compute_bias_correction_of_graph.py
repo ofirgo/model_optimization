@@ -71,7 +71,7 @@ def _compute_bias_correction_per_candidate_qc(node: BaseNode,
         fw_impl: FrameworkImplementation object with a specific framework methods implementation.
 
     """
-
+    # TODO: check if we need to also quantize other attributes or is kernel enough
     for candidate_qc in node.candidates_quantization_cfg:
         if candidate_qc.weights_quantization_cfg.enable_weights_quantization and not \
                 candidate_qc.weights_quantization_cfg.weights_second_moment_correction:

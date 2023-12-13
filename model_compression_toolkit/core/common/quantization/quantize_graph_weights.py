@@ -26,6 +26,10 @@ from model_compression_toolkit.logger import Logger
 def quantize_graph_weights(graph: Graph,
                            fw_info: FrameworkInfo,
                            fw_impl: FrameworkImplementation) -> Graph:
+    # TODO: This is a function that is used in the old exporter and in a single place in MCT (second moment correction).
+    #  so, if we can skip modifying it to quantized all parameters, and if it is sufficient for SMC to get only the
+    #  quantized kernel, then the modifications required here are minimal (only get the kernel from the mapping)
+
     """
     Get a graph representing a model, and quantize its nodes' weights.
     Each node is quantized according to the passed framework info and quantization configuration.
@@ -41,7 +45,6 @@ def quantize_graph_weights(graph: Graph,
     # Iterate over nodes in the graph and quantize each node's weights and activations
     # (according to operators groups in framework info).
     for n in graph.nodes():
-
         if n.is_weights_quantization_enabled():
             quantized_kernel, io_channels_axes = get_quantized_kernel_by_weights_qc(fw_info,
                                                                                     n,
@@ -51,8 +54,5 @@ def quantize_graph_weights(graph: Graph,
             Logger.debug(
                 f'Node name: {n.name} has the following quantization params: '
                 f'{str(n.final_weights_quantization_cfg.weights_quantization_params)}')
-
-            # Set the kernel node to be the quantized kernel.
-            n.set_weights_by_keys(fw_impl.constants.KERNEL, quantized_kernel)
 
     return graph

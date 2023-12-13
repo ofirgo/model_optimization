@@ -57,7 +57,7 @@ def get_quantized_kernel_by_weights_qc(fw_info: FrameworkInfo,
     quantized_kernel = weights_qc.weights_quantization_fn(n.get_weights_by_keys(fw_impl.constants.KERNEL),
                                                           n_bits=weights_qc.weights_n_bits,
                                                           signed=True,
-                                                          quantization_params=weights_qc.weights_quantization_params,
+                                                          quantization_params=weights_qc.get_weights_quantization_params(attr_name=fw_impl.constants.KERNEL),
                                                           per_channel=weights_qc.weights_per_channel_threshold,
                                                           output_channels_axis=output_channels_axis)
 

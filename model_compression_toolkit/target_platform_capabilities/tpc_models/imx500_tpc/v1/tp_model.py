@@ -52,17 +52,19 @@ def get_op_quantization_configs() -> Tuple[OpQuantizationConfig, List[OpQuantiza
     # A quantization configuration defines how an operator
     # should be quantized on the modeled hardware:
     eight_bits = tp.OpQuantizationConfig(
+        default_weights_cfg=AttrWeightsCfg, # [enable, 8 bit, per channel = false]
+        attr_weights_cfg: Dict[str, AttrWeightsCfg],
         activation_quantization_method=tp.QuantizationMethod.POWER_OF_TWO,
-        weights_quantization_method=tp.QuantizationMethod.SYMMETRIC,
+        # weights_quantization_method=tp.QuantizationMethod.SYMMETRIC,
         activation_n_bits=8,
-        weights_n_bits=8,
-        weights_per_channel_threshold=True,
-        enable_weights_quantization=True,
+        # weights_n_bits=8,
+        # weights_per_channel_threshold=True,
+        # enable_weights_quantization=True,
         enable_activation_quantization=True,
         quantization_preserving=False,
         fixed_scale=None,
         fixed_zero_point=None,
-        weights_multiplier_nbits=None,
+        # weights_multiplier_nbits=None,
         simd_size=32)
 
     # To quantize a model using mixed-precision, create

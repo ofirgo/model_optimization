@@ -316,11 +316,12 @@ class BaseNode:
             fw_info: FrameworkInfo object about the specific framework (e.g., attributes of different layers' weights to quantize).
         Returns: Whether the node has weights that need to be quantized.
         """
-        attrs = fw_info.get_kernel_op_attributes(self.type)
-        for attr in attrs:
-            if attr and self.get_weights_by_keys(attr) is not None:
-                return True
-        return False
+        # attrs = fw_info.get_kernel_op_attributes(self.type)
+        # for attr in attrs:
+        #     if attr and self.get_weights_by_keys(attr) is not None:
+        #         return True
+        # return False
+        return len(self.weights) > 0
 
     def get_total_output_params(self) -> float:
         """

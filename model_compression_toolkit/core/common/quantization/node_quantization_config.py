@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import copy
 
-
-from typing import Callable, Any
+from typing import Callable, Any, Dict
 
 import numpy as np
 
@@ -247,20 +247,27 @@ class NodeWeightsQuantizationConfig(BaseNodeQuantizationConfig):
             weights_channels_axis: Axis to quantize a node's kernel when quantizing per-channel.
         """
 
+        # TODO: per attr
         self.weights_quantization_fn = weights_quantization_fn
         self.weights_quantization_params_fn = weights_quantization_params_fn
         self.weights_channels_axis = weights_channels_axis
         self.weights_quantization_params = {}
         self.weights_quantization_method = op_cfg.weights_quantization_method
-        self.weights_error_method = qc.weights_error_method
         self.weights_n_bits = op_cfg.weights_n_bits
-        self.weights_bias_correction = qc.weights_bias_correction
-        self.weights_second_moment_correction = qc.weights_second_moment_correction
         self.weights_per_channel_threshold = op_cfg.weights_per_channel_threshold
         self.enable_weights_quantization = op_cfg.enable_weights_quantization
-        self.min_threshold = qc.min_threshold
-        self.l_p_value = qc.l_p_value
         self.simd_size = op_cfg.simd_size
+
+        # TODO: needs to be per attr but currently global
+        self.weights_error_method = qc.weights_error_method
+        self.l_p_value = qc.l_p_value
+
+        self.weights_bias_correction = qc.weights_bias_correction
+        self.weights_second_moment_correction = qc.weights_second_moment_correction
+        self.min_threshold = qc.min_threshold
+
+        # TODO:
+        # self.attr_quant_cfg = {attr: AttrQuantConfig}
 
 
     @property
@@ -304,17 +311,30 @@ class NodeWeightsQuantizationConfig(BaseNodeQuantizationConfig):
         self.weights_quantization_params_fn = weights_quantization_params_fn
 
     def set_weights_quantization_param(self,
-                                       weights_params: dict):
+                                       attr_name: str,
+                                       weights_params: Dict[str, Dict[str, Any]]):
         """
-         Set a quantization parameter for the node's weights.
+        # TODO: modify documentation and change func name to "...params"
+         Set a quantization parameter for a node's attribute weights.
 
         Args:
+            attr_name: The name of the attribute to set the quantization parameters for.
             weights_params: Dictionary that contains weight quantization params.
 
         """
         assert self.enable_weights_quantization
-        for param_name, param_value in weights_params.items():
-            self.weights_quantization_params[param_name] = param_value
+        self.weights_quantization_params[attr_name] = copy.deepcopy(weights_params)
+
+    def get_weights_quantization_params(self, attr_name: str = None):
+        if attr_name is None:
+            return self.weights_quantization_params
+
+        filtered_params = [v for k, v in self.weights_quantization_params.items() if attr_name in k]
+
+        if len(filtered_params) != 1:
+            Logger.error(f"Expecting exactlly one parameter with attribute name containing {attr_name} "
+                         f"but found {len(filtered_params)}: {filtered_params}")
+        return filtered_params[0]
 
     def calculate_and_set_weights_params(self, tensor_data: np.ndarray) -> float:
         """
@@ -325,6 +345,8 @@ class NodeWeightsQuantizationConfig(BaseNodeQuantizationConfig):
             Recalculated weights quantization params from the kernel and channel axis.
 
         """
+        # TODO: either remove this method and replace the only place that it is used (input scaling) to work
+        #  like in the params computation or use thos mthod in the param computation
         assert self.enable_weights_quantization
         if self.weights_quantization_params_fn is not None:
             self.set_weights_quantization_param(self.weights_quantization_params_fn(tensor_data,
@@ -336,13 +358,6 @@ class NodeWeightsQuantizationConfig(BaseNodeQuantizationConfig):
         else:
             return self.set_weights_quantization_param({})
 
-    def has_weights_quantization_params(self) -> bool:
-        """
-
-        Returns: Whether NodeQuantizationConfig has weights quantization params or not.
-
-        """
-        return len(self.weights_quantization_params) > 0
 
     def __eq__(self, other: Any) -> bool:
         """

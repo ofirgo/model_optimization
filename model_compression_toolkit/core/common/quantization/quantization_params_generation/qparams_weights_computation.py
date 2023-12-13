@@ -43,6 +43,7 @@ def get_weights_qparams(kernel: np.ndarray,
         A dictionary with the quantization threshold of the kernel.
     """
     if weights_quant_config.weights_quantization_params_fn is not None:
+        # TODO: change var to weights_param instead of kernel
         weights_params = weights_quant_config.weights_quantization_params_fn(kernel,
                                                                              p=weights_quant_config.l_p_value,
                                                                              n_bits=weights_quant_config.weights_n_bits,
