@@ -45,7 +45,6 @@ class FrameworkInfo:
                  kernel_channels_mapping: DefaultDict,
                  activation_min_max_mapping: Dict[str, tuple],
                  layer_min_max_mapping: Dict[Any, tuple],
-                 kernel_ops_attributes_mapping: DefaultDict,
                  out_channel_axis_mapping: DefaultDict):
         """
         A class to wrap all information about a specific framework the library needs to quantize a model.
@@ -61,7 +60,6 @@ class FrameworkInfo:
             kernel_channels_mapping (DefaultDict): Dictionary from a layer to a tuple of its kernel in/out channels indices.
             activation_min_max_mapping (Dict[str, tuple]): Dictionary from an activation function to its min/max output values.
             layer_min_max_mapping (Dict[Any, tuple]): Dictionary from a layer to its min/max output values.
-            kernel_ops_attributes_mapping (DefaultDict): Dictionary from a framework operator to a list of its weights attirbutes to quantize.
             out_channel_axis_mapping (DefaultDict): Dictionary of output channels of the model's layers (for computing statistics per-channel).
 
         Examples:
@@ -92,7 +90,6 @@ class FrameworkInfo:
         self.kernel_channels_mapping = kernel_channels_mapping
         self.activation_min_max_mapping = activation_min_max_mapping
         self.layer_min_max_mapping = layer_min_max_mapping
-        self.kernel_ops_attributes_mapping = kernel_ops_attributes_mapping
         self.out_channel_axis_mapping = out_channel_axis_mapping
 
     def get_kernel_op_attributes(self, node_type: Any) -> List[str]:

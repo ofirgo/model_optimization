@@ -32,14 +32,14 @@ from model_compression_toolkit.core.keras.constants import SOFTMAX, LINEAR, RELU
     KERNEL, DEPTHWISE_KERNEL
 from model_compression_toolkit.core.keras.quantizer.fake_quant_builder import power_of_two_quantization, symmetric_quantization, uniform_quantization
 
-"""
-Map each layer to a list of its' weights attributes that should get quantized.
-If a layer that is not listed here is queried, [None] is returned.
-"""
-KERNEL_ATTRIBUTES = DefaultDict({Conv2D: [KERNEL],
-                                 DepthwiseConv2D: [DEPTHWISE_KERNEL],
-                                 Dense: [KERNEL],
-                                 Conv2DTranspose: [KERNEL]}, [None])
+# """
+# Map each layer to a list of its' weights attributes that should get quantized.
+# If a layer that is not listed here is queried, [None] is returned.
+# """
+# KERNEL_ATTRIBUTES = DefaultDict({Conv2D: [KERNEL],
+#                                  DepthwiseConv2D: [DEPTHWISE_KERNEL],
+#                                  Dense: [KERNEL],
+#                                  Conv2DTranspose: [KERNEL]}, [None])
 
 
 """
@@ -109,5 +109,4 @@ DEFAULT_KERAS_INFO = FrameworkInfo(ACTIVATION_QUANTIZER_MAPPING,
                                    DEFAULT_CHANNEL_AXIS_DICT,
                                    ACTIVATION2MINMAX,
                                    LAYER2MINMAX,
-                                   KERNEL_ATTRIBUTES,
                                    DEFAULT_OUT_CHANNEL_AXIS_DICT)
