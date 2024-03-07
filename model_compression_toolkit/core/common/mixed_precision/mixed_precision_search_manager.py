@@ -162,6 +162,10 @@ class MixedPrecisionSearchManager:
                     # skip KPI computation for min configuration. Since we compute the difference from min_kpi it'll
                     # always be 0 for all entries in the results vector.
                     candidate_kpis = np.zeros(shape=self.min_kpi[target].shape)
+                elif candidate_idx > self.min_kpi_config[c]:
+                    # If first and last layers are restricted to the maximal bit-width, then we don't need to compute
+                    # the KPI for them for bit-width that is lower than their defined minimal option.
+                    continue
                 else:
                     candidate_kpis = self.compute_candidate_relative_kpis(c, candidate_idx, target)
                 kpi_matrix.append(np.asarray(candidate_kpis))
@@ -354,7 +358,7 @@ class MixedPrecisionSearchManager:
             for n in nodes_to_restrict:
                 conf_node_idx = configurable_nodes.index(n)
                 self.min_kpi_config[conf_node_idx] = 0
-                Logger.info(f"Layer {n.name} quantization bit-width is restricted to the maximal candidate.")
+                Logger.info(f"Layer '{n.name}' quantization bit-width is restricted to the maximal candidate.")
 
     def verify_min_kpi_fit(self):
         min_kpi_fit = True
@@ -370,17 +374,16 @@ class MixedPrecisionSearchManager:
 
         if not min_kpi_fit:
             if self.first_last_max_bit:
-                Logger.warning("Minimal KPI does not fit to the requested target KPI. "
-                               "Disabling restriction on input and output layers to maximal bit-width "
+                Logger.warning(f"Minimal KPI does not fit to the requested target KPI. "
+                               "Removing the restriction on the first and last layers to maximal bit-width "
                                "and checking again.")
                 self.first_last_max_bit = False
                 self.min_kpi_config = self.graph.get_min_candidates_config(self.fw_info)
+                self.min_kpi = self.compute_min_kpis()
                 self.verify_min_kpi_fit()
 
             Logger.critical(f"The minimal KPI based on the provided quantization configuration candidates to each layer "
-                            f"can not fit into the requested target KPI.\n"
-                            f"Minimal KPI: {self.min_kpi}.\n"
-                            f"Target KPI: {self.target_kpi}.")
+                            f"can not fit into the requested target KPI.")
         Logger.info("The minimal KPI fits in the requested KPI. "
                     "Proceeding to searching an optimal bit-width configuration.")
 

@@ -67,7 +67,7 @@ def mp_integer_programming_search(search_manager: MixedPrecisionSearchManager,
                                     search_manager)
 
     # Use default PULP solver. Limit runtime in seconds
-    solver = PULP_CBC_CMD(timeLimit=SOLVER_TIME_LIMIT, msg=False)
+    solver = PULP_CBC_CMD(timeLimit=SOLVER_TIME_LIMIT)
     lp_problem.solve(solver=solver)  # Try to solve the problem.
 
     assert lp_problem.status == LpStatusOptimal, Logger.critical(
