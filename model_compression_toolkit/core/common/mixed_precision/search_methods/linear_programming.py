@@ -67,7 +67,7 @@ def mp_integer_programming_search(search_manager: MixedPrecisionSearchManager,
                                     search_manager)
 
     # Use default PULP solver. Limit runtime in seconds
-    solver = PULP_CBC_CMD(timeLimit=SOLVER_TIME_LIMIT)
+    solver = PULP_CBC_CMD(timeLimit=SOLVER_TIME_LIMIT, msg=False)
     lp_problem.solve(solver=solver)  # Try to solve the problem.
 
     assert lp_problem.status == LpStatusOptimal, Logger.critical(
@@ -271,6 +271,13 @@ def _build_layer_to_metrics_mapping(search_manager: MixedPrecisionSearchManager,
             if search_manager.max_kpi_config[node_idx] == bitwidth_idx:
                 # This is a computation of the metric for the max configuration, assign pre-calculated value
                 layer_to_metrics_mapping[node_idx][bitwidth_idx] = max_config_value
+                continue
+
+            if bitwidth_idx > search_manager.min_kpi_config[node_idx]:
+                # If first and last layers are restricted to the maximal bit-width, then we don't need to compute the
+                # metric for them for bit-width that is lower than their defined minimal option.
+                # Since the bit-width candidates are sorted in descending order (b: [8, 4, 2] = idx: [0, 1, 2]),
+                # and we compare indices, then we skip computation if the current candidate bitwidth is larger.
                 continue
 
             # Create a configuration that differs at one layer only from the baseline model

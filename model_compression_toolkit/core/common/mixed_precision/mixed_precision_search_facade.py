@@ -114,6 +114,7 @@ def search_bit_width(graph_to_search_cfg: Graph,
                                                  se,
                                                  kpi_functions,
                                                  target_kpi,
+                                                 first_last_max_bit=mp_config.first_last_max_bit,
                                                  original_graph=graph_to_search_cfg)
 
     if search_method in search_methods:  # Get a specific search function

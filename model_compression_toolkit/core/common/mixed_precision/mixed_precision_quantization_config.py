@@ -30,7 +30,8 @@ class MixedPrecisionQuantizationConfig:
                  use_hessian_based_scores: bool = True,  # TODO: change to False and check reduction in accuracy
                  norm_scores: bool = True,
                  refine_mp_solution: bool = True,
-                 metric_normalization_threshold: float = 1e10):
+                 metric_normalization_threshold: float = 1e10,
+                 first_last_max_bit: bool = True):
         """
         Class with mixed precision parameters to quantize the input model.
 
@@ -44,6 +45,7 @@ class MixedPrecisionQuantizationConfig:
             norm_scores (bool): Whether to normalize the returned scores for the weighted distance metric (to get values between 0 and 1).
             refine_mp_solution (bool): Whether to try to improve the final mixed-precision configuration using a greedy algorithm that searches layers to increase their bit-width, or not.
             metric_normalization_threshold (float): A threshold for checking the mixed precision distance metric values, In case of values larger than this threshold, the metric will be scaled to prevent numerical issues.
+            first_last_max_bit (bool): Whether to restrict the mixed precision results to the maximal bit-width on the first and last layers (both weights and activation, if quantized with mixed precision).
 
         """
 
@@ -63,4 +65,4 @@ class MixedPrecisionQuantizationConfig:
         self.norm_scores = norm_scores
 
         self.metric_normalization_threshold = metric_normalization_threshold
-
+        self.first_last_max_bit = first_last_max_bit

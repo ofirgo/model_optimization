@@ -42,6 +42,7 @@ class MixedPrecisionSearchManager:
                  sensitivity_evaluator: SensitivityEvaluation,
                  kpi_functions: Dict[KPITarget, Tuple[MpKpiMetric, MpKpiAggregation]],
                  target_kpi: KPI,
+                 first_last_max_bit: bool = True,
                  original_graph: Graph = None):
         """
 
@@ -66,11 +67,21 @@ class MixedPrecisionSearchManager:
         self.layer_to_bitwidth_mapping = self.get_search_space()
         self.compute_metric_fn = self.get_sensitivity_metric()
 
+        self.first_last_max_bit =first_last_max_bit
         self.compute_kpi_functions = kpi_functions
         self.target_kpi = target_kpi
+
         self.min_kpi_config = self.graph.get_min_candidates_config(fw_info)
+        # Update the min config if restricting first and last layers to maximal bit-width
+        self.set_min_kpi_config()
+
         self.max_kpi_config = self.graph.get_max_candidates_config(fw_info)
         self.min_kpi = self.compute_min_kpis()
+        # We verify that the minimal KPI fits in the target KPI. If it doesn't fit and first-last layers are restricted
+        # to the maximal bit-width then we remove this restriction and check again (if it still doesn't fit an error
+        # will be thrown)
+        self.verify_min_kpi_fit()
+
         self.non_conf_kpi_dict = self._non_configurable_nodes_kpi()
 
         self.config_reconstruction_helper = ConfigReconstructionHelper(virtual_graph=self.graph,
@@ -312,6 +323,66 @@ class MixedPrecisionSearchManager:
             for layer, dists in layer_to_metrics_mapping.items():
                 for b, d in dists.items():
                     layer_to_metrics_mapping[layer][b] /= max_dist
+
+    def set_min_kpi_config(self):
+        if self.first_last_max_bit:
+            Logger.info(f"Setting first and last layers that are quantized in mixed precision to "
+                        f"their maximal bit-width option.")
+
+            Logger.debug("We assume that the candidates are sorted for each node, therefore, the maximal candidate is "
+                         "in index 0 and we do not look for it.")
+
+            configurable_nodes = self.graph.get_configurable_sorted_nodes(self.fw_info, include_reused_nodes=False)
+            weights_conf_nodes = self.graph.get_weights_configurable_nodes(self.fw_info, include_reused_nodes=False)
+            act_conf_nodes = self.graph.get_activation_configurable_nodes()
+
+            # Getting the first and last weights and activation configurable nodes (based on the graph
+            # topological sort order)
+            sorted_w_nodes = [n for n in configurable_nodes if n in weights_conf_nodes]
+            sorted_a_nodes = [n for n in configurable_nodes if n in act_conf_nodes]
+
+            def _get_first_with_default(_l):
+                return next((x for x in _l), None)
+
+            nodes_to_restrict = [_get_first_with_default(sorted_w_nodes),
+                                 _get_first_with_default(list(reversed(sorted_w_nodes))),
+                                 _get_first_with_default(sorted_a_nodes),
+                                 _get_first_with_default(list(reversed(sorted_a_nodes)))]
+            # Remove None and duplications
+            nodes_to_restrict = list(set([n for n in nodes_to_restrict if n is not None]))
+
+            for n in nodes_to_restrict:
+                conf_node_idx = configurable_nodes.index(n)
+                self.min_kpi_config[conf_node_idx] = 0
+                Logger.info(f"Layer {n.name} quantization bit-width is restricted to the maximal candidate.")
+
+    def verify_min_kpi_fit(self):
+        min_kpi_fit = True
+        for target, kpi_value in self.target_kpi.get_kpi_dict().items():
+            # compute_kpi_functions gives a tuple of (metric_method, aggregation_method).
+            # here, we only need to compute the aggregation on the already computed metric vector.
+            min_kpi_for_target = self.compute_kpi_functions[target][1](self.min_kpi[target], False)
+            if len(min_kpi_for_target) != 1:
+                Logger.critical(f"An error occurred while trying to compute the minimal KPI for target: {target}.")
+            if min_kpi_for_target[0] > kpi_value:
+                min_kpi_fit = False
+                break
+
+        if not min_kpi_fit:
+            if self.first_last_max_bit:
+                Logger.warning("Minimal KPI does not fit to the requested target KPI. "
+                               "Disabling restriction on input and output layers to maximal bit-width "
+                               "and checking again.")
+                self.first_last_max_bit = False
+                self.min_kpi_config = self.graph.get_min_candidates_config(self.fw_info)
+                self.verify_min_kpi_fit()
+
+            Logger.critical(f"The minimal KPI based on the provided quantization configuration candidates to each layer "
+                            f"can not fit into the requested target KPI.\n"
+                            f"Minimal KPI: {self.min_kpi}.\n"
+                            f"Target KPI: {self.target_kpi}.")
+        Logger.info("The minimal KPI fits in the requested KPI. "
+                    "Proceeding to searching an optimal bit-width configuration.")
 
 
 class ConfigReconstructionHelper:
