@@ -381,9 +381,12 @@ class MixedPrecisionSearchManager:
                 self.min_kpi_config = self.graph.get_min_candidates_config(self.fw_info)
                 self.min_kpi = self.compute_min_kpis()
                 self.verify_min_kpi_fit()
+                # After verifying the modified minimal configuration, we can exit the function
+                return
 
             Logger.critical(f"The minimal KPI based on the provided quantization configuration candidates to each layer "
                             f"can not fit into the requested target KPI.")
+
         Logger.info("The minimal KPI fits in the requested KPI. "
                     "Proceeding to searching an optimal bit-width configuration.")
 
