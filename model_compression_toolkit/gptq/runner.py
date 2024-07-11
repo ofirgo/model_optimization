@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
+import copy
 from typing import Callable
 
 from model_compression_toolkit.core import CoreConfig
 from model_compression_toolkit.core import common
 from model_compression_toolkit.core.common.hessian import HessianInfoService
 from model_compression_toolkit.core.common.statistics_correction.statistics_correction import \
-    apply_statistics_correction
+    apply_statistics_correction, statistics_correction_runner
 from model_compression_toolkit.gptq.common.gptq_config import GradientPTQConfig
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 from model_compression_toolkit.core.common import FrameworkInfo
@@ -39,6 +39,7 @@ def _apply_gptq(gptq_config: GradientPTQConfig,
                 tg_bias: Graph,
                 fw_info: FrameworkInfo,
                 fw_impl: FrameworkImplementation,
+                core_config,
                 hessian_info_service: HessianInfoService = None) -> Graph:
     """
     Apply GPTQ to improve accuracy of quantized model.
@@ -65,6 +66,7 @@ def _apply_gptq(gptq_config: GradientPTQConfig,
                                 representative_data_gen,
                                 fw_impl,
                                 fw_info,
+                                core_config,
                                 hessian_info_service=hessian_info_service)
 
         if tb_w is not None:
@@ -101,13 +103,8 @@ def gptq_runner(tg: Graph,
 
     """
 
-    #############################################
-    # Apply Statistics Correction
-    #############################################
-    tg_bias = apply_statistics_correction(tg, representative_data_gen, core_config, fw_info, fw_impl, tb_w)
+    tg_bias = copy.deepcopy(tg)
 
-    if tb_w is not None:
-        tb_w.add_graph(tg_bias, 'after_bias_correction')
     #############################################
     # Gradient Based Post Training Quantization
     #############################################
@@ -119,6 +116,17 @@ def gptq_runner(tg: Graph,
                           tg_bias,
                           fw_info,
                           fw_impl,
+                          core_config,
                           hessian_info_service=hessian_info_service)
 
-    return tg_gptq
+    #############################################
+    # Apply Statistics Correction
+    #############################################
+
+    tg_gptq_bias = apply_statistics_correction(tg_gptq, representative_data_gen, core_config, fw_info, fw_impl, tb_w)
+
+
+    # if tb_w is not None:
+    #     tb_w.add_graph(tg_gptq_bias, 'after_bias_correction')
+
+    return tg_gptq_bias

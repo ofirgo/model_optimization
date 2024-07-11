@@ -40,7 +40,8 @@ def quantization_preparation_runner(graph: Graph,
                                     fw_info: FrameworkInfo,
                                     fw_impl: FrameworkImplementation,
                                     tb_w: TensorboardWriter = None,
-                                    hessian_info_service: HessianInfoService = None,) -> Graph:
+                                    hessian_info_service: HessianInfoService = None,
+                                    running_gptq=False) -> Graph:
     """
     Prepares a trained model for post-training quantization.
     First, the model graph is optimized using several transformations (e.g. folding BatchNormalization to preceding layers).
@@ -120,9 +121,11 @@ def quantization_preparation_runner(graph: Graph,
     ######################################
     # Statistics Correction
     ######################################
-    tg_with_bias = statistics_correction_runner(transformed_graph, core_config, fw_info, fw_impl, tb_w)
+    # transformed_graph = statistics_correction_runner(transformed_graph, core_config, fw_info, fw_impl, compute_for_finalized_graph=False, tb_w=tb_w)
+    if not running_gptq:
+        transformed_graph = statistics_correction_runner(transformed_graph, core_config, fw_info, fw_impl, compute_for_finalized_graph=False, tb_w=tb_w)
 
-    for n in tg_with_bias.nodes:
+    for n in transformed_graph.nodes:
         assert n.final_weights_quantization_cfg is None
 
-    return tg_with_bias
+    return transformed_graph

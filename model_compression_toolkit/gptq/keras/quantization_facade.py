@@ -218,6 +218,7 @@ if FOUND_TF:
                                                                   tb_w=tb_w,
                                                                   running_gptq=True)
 
+        #TODO: Ofir: this is not the float graph it's the finalized graph
         float_graph = copy.deepcopy(tg)
 
         tg_gptq = gptq_runner(tg,

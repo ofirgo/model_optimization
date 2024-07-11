@@ -20,14 +20,20 @@ import numpy as np
 from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 from model_compression_toolkit.core.common.framework_info import FrameworkInfo
 from model_compression_toolkit.core.common import BaseNode, Graph
+from model_compression_toolkit.core.common.quantization.candidate_node_quantization_config import \
+    CandidateNodeQuantizationConfig
 from model_compression_toolkit.core.common.quantization.quantize_node import get_quantized_weights_attr_by_qc
 from model_compression_toolkit.core.common.collectors.statistics_collector import BaseStatsCollector
+from model_compression_toolkit.core.pytorch.utils import torch_tensor_to_numpy
 from model_compression_toolkit.logger import Logger
 
 
+# candidate_to_compute: CandidateNodeQuantizationConfig = None
+
 def compute_bias_correction_of_graph(graph: Graph,
                                      fw_info: FrameworkInfo,
-                                     fw_impl: FrameworkImplementation) -> Graph:
+                                     fw_impl: FrameworkImplementation,
+                                     compute_for_finalized_graph: bool = False) -> Graph:
     """
     For each node in a graph, and for each candidate weights quantization configuration,
     compute the bias-correction term, and store it in the candidate weights quantization configuration.
@@ -49,24 +55,67 @@ def compute_bias_correction_of_graph(graph: Graph,
         if fw_info.is_kernel_op(n.type):
             kernel_attr = fw_info.get_kernel_op_attributes(n.type)[0]
             if n.is_weights_quantization_enabled(kernel_attr):
-                # Bias correction is not applied to layers with constant inputs.
-                if n.has_positional_weights:
-                    for candidate_qc in n.candidates_quantization_cfg:
-                        candidate_qc.weights_quantization_cfg.weights_bias_correction = False
+                if compute_for_finalized_graph:
+                    if n.final_weights_quantization_cfg is None:
+                        Logger.critical(
+                            f"Requested to compute bias correction for finalized graph, but node {n.name} "
+                            f"final_weights_quantization_cfg in None.")
+
+                    # Building a candidate object to compute bias correction, then overwriting the final candidate
+                    final_cfg_with_bias = CandidateNodeQuantizationConfig(
+                        activation_quantization_cfg=n.final_activation_quantization_cfg,
+                        weights_quantization_cfg=n.final_weights_quantization_cfg)
+
+                    if n.has_positional_weights:
+                        final_cfg_with_bias.weights_quantization_cfg.weights_bias_correction = False
+                    else:
+                        _compute_bias_correction_per_candidate_qc(n,
+                                                                  kernel_attr,
+                                                                  graph.get_in_stats_collector(n),
+                                                                  fw_impl=fw_impl,
+                                                                  candidate_to_compute=final_cfg_with_bias)
+                    n.final_weights_quantization_cfg = final_cfg_with_bias.weights_quantization_cfg
                 else:
-                    _compute_bias_correction_per_candidate_qc(n,
-                                                              kernel_attr,
-                                                              fw_info,
-                                                              graph.get_in_stats_collector(n),
-                                                              fw_impl=fw_impl)
+                    # Bias correction is not applied to layers with constant inputs.
+                    if n.has_positional_weights:
+                        for candidate_qc in n.candidates_quantization_cfg:
+                            candidate_qc.weights_quantization_cfg.weights_bias_correction = False
+                    else:
+                        _compute_bias_correction_per_candidate_qc(n,
+                                                                  kernel_attr,
+                                                                  graph.get_in_stats_collector(n),
+                                                                  fw_impl=fw_impl)
     return graph
+
+
+def _compute_bias_correction_for_single_candidate(candidate_qc: CandidateNodeQuantizationConfig,
+                                                  node: BaseNode,
+                                                  kernel_attr: str,
+                                                  node_in_stats_collector: BaseStatsCollector,
+                                                  fw_impl: FrameworkImplementation, ):
+    if candidate_qc.weights_quantization_cfg.weights_bias_correction and not \
+            candidate_qc.weights_quantization_cfg.weights_second_moment_correction:
+        quantized_kernel, io_channels_axes = get_quantized_weights_attr_by_qc(kernel_attr,
+                                                                              node,
+                                                                              candidate_qc.weights_quantization_cfg
+                                                                              .get_attr_config(kernel_attr))
+
+        bias_correction_term = _get_bias_correction_term_of_node(io_channels_axes[0],
+                                                                 node,
+                                                                 node_in_stats_collector,
+                                                                 io_channels_axes[1],
+                                                                 quantized_kernel,
+                                                                 fw_impl=fw_impl)
+
+        # Store the correction term to use it later,
+        candidate_qc.weights_quantization_cfg.bias_corrected = bias_correction_term
 
 
 def _compute_bias_correction_per_candidate_qc(node: BaseNode,
                                               kernel_attr: str,
-                                              fw_info: FrameworkInfo,
                                               node_in_stats_collector: BaseStatsCollector,
-                                              fw_impl: FrameworkImplementation):
+                                              fw_impl: FrameworkImplementation,
+                                              candidate_to_compute: CandidateNodeQuantizationConfig = None):
     """
     For each candidate weights quantization configuration of a given node,
     compute the bias-correction term, and store it in the candidate weights quantization configuration.
@@ -74,30 +123,18 @@ def _compute_bias_correction_per_candidate_qc(node: BaseNode,
     Args:
         node: Node to compute the bias correction for its different candidates.
         kernel_attr: The name of the kernel attribute of the node.
-        fw_info: Framework info like lists of nodes their kernel should quantized.
         node_in_stats_collector: Statistics collector of the node for the mean per-channel.
         fw_impl: FrameworkImplementation object with a specific framework methods implementation.
 
     """
 
-    for candidate_qc in node.candidates_quantization_cfg:
-        if candidate_qc.weights_quantization_cfg.weights_bias_correction and not \
-                candidate_qc.weights_quantization_cfg.weights_second_moment_correction:
-
-            quantized_kernel, io_channels_axes = get_quantized_weights_attr_by_qc(kernel_attr,
-                                                                                  node,
-                                                                                  candidate_qc.weights_quantization_cfg
-                                                                                  .get_attr_config(kernel_attr))
-
-            bias_correction_term = _get_bias_correction_term_of_node(io_channels_axes[0],
-                                                                     node,
-                                                                     node_in_stats_collector,
-                                                                     io_channels_axes[1],
-                                                                     quantized_kernel,
-                                                                     fw_impl=fw_impl)
-
-            # Store the correction term to use it later,
-            candidate_qc.weights_quantization_cfg.bias_corrected = bias_correction_term
+    if candidate_to_compute is not None:
+        _compute_bias_correction_for_single_candidate(candidate_to_compute, node, kernel_attr,
+                                                      node_in_stats_collector, fw_impl)
+    else:
+        for candidate_qc in node.candidates_quantization_cfg:
+            _compute_bias_correction_for_single_candidate(candidate_qc, node, kernel_attr,
+                                                          node_in_stats_collector, fw_impl)
 
 
 def is_non_positive_integer(x: float) -> bool:
@@ -133,7 +170,7 @@ def _compute_bias_correction(kernel: np.ndarray,
         bias due to weights quantization.
     """
 
-    quantization_error = quantized_kernel - kernel
+    quantization_error = torch_tensor_to_numpy(quantized_kernel) - kernel
     mu = in_statistics_container.get_mean()
     axis_not_input_output_channel = tuple(
         [i for i in range(len(quantization_error.shape)) if i not in [output_channels_axis, input_channels_axis]])
@@ -143,13 +180,13 @@ def _compute_bias_correction(kernel: np.ndarray,
     if output_channels_axis == input_channels_axis:
         # Tensorflow's kerenl dimensions: [h, w, in_channels, depth_multiplier]
         eps = np.sum(quantization_error, axis=(0, 1))  # Sum noises over h,w
-        eps = eps.reshape((-1, 1)) # Prepare shape: (num_output_channels, depth_of_each_kernel)
+        eps = eps.reshape((-1, 1))  # Prepare shape: (num_output_channels, depth_of_each_kernel)
 
     if output_channels_axis > input_channels_axis:
         eps = np.transpose(eps)
 
     num_groups = mu.shape[0] / eps.shape[1]
-    num_out_channels = eps.shape[0] # 0 is always the output channel axis in eps
+    num_out_channels = eps.shape[0]  # 0 is always the output channel axis in eps
     correction_term = np.zeros(num_out_channels)
 
     # Sanity validation

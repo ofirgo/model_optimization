@@ -121,7 +121,8 @@ def core_runner(in_model: Any,
                                          fw_info=fw_info,
                                          fw_impl=fw_impl,
                                          tb_w=tb_w,
-                                         hessian_info_service=hessian_info_service)
+                                         hessian_info_service=hessian_info_service,
+                                         running_gptq=running_gptq)
 
     ######################################
     # Finalize bit widths

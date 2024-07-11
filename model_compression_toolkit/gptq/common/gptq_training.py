@@ -18,6 +18,8 @@ import numpy as np
 from typing import Callable, List, Any, Dict
 
 from model_compression_toolkit.constants import ACT_HESSIAN_DEFAULT_BATCH_SIZE
+from model_compression_toolkit.core.common.statistics_correction.statistics_correction import \
+    statistics_correction_runner
 from model_compression_toolkit.gptq.common.gptq_config import GradientPTQConfig
 from model_compression_toolkit.core.common import Graph, BaseNode
 from model_compression_toolkit.core.common.framework_info import FrameworkInfo
@@ -291,6 +293,7 @@ def gptq_training(graph_float: Graph,
                   representative_data_gen: Callable,
                   fw_impl: GPTQFrameworkImplemantation,
                   fw_info: FrameworkInfo,
+                  core_config,
                   hessian_info_service: HessianInfoService=None) -> Graph:
     """
     GPTQ training process using knowledge distillation with a teacher network (float model) and a student network (quantized model).
@@ -320,6 +323,25 @@ def gptq_training(graph_float: Graph,
 
     # Training process
     gptq_trainer.train(representative_data_gen)
+
+    d = {}
+    for n in gptq_trainer.graph_quant.get_topo_sorted_nodes():
+        # q = [m for m in gptq_trainer.fxp_model.layers if hasattr(m, 'layer') and m.layer.name == n.name]
+        q = [m for name, m in gptq_trainer.fxp_model.named_modules() if hasattr(m, 'layer') and name == n.name]
+        if len(q) == 0:
+            continue
+        else:
+            d[n.name] = q[0]
+
+    for k, v in d.items():
+        l = [n for n in gptq_trainer.graph_quant.get_topo_sorted_nodes() if n.name == k][0]
+        kernel = fw_info.get_kernel_op_attributes(l.type)[0]
+        l.final_weights_quantization_cfg.get_attr_config(kernel).weights_quantization_fn = \
+        [y for x, y in v.weights_quantizers.items() if kernel == x][0]
+
+
+    _ = statistics_correction_runner(gptq_trainer.graph_quant, core_config, fw_info, fw_impl,
+                                     compute_for_finalized_graph=True)
 
     # Update graph
     graph_quant = gptq_trainer.update_graph()

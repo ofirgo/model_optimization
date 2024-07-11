@@ -32,6 +32,7 @@ def statistics_correction_runner(transformed_graph: Graph,
                                  core_config: CoreConfig,
                                  fw_info: FrameworkInfo,
                                  fw_impl: FrameworkImplementation,
+                                 compute_for_finalized_graph: bool = False,
                                  tb_w: TensorboardWriter = None, ) -> Graph:
     """
      Add statistics moment correction on graph.
@@ -58,7 +59,8 @@ def statistics_correction_runner(transformed_graph: Graph,
     ########################################################
     tg_with_bias = compute_bias_correction_of_graph(tg_with_bias,
                                                     fw_info,
-                                                    fw_impl)
+                                                    fw_impl,
+                                                    compute_for_finalized_graph=compute_for_finalized_graph)
 
     if tb_w is not None:
         tb_w.add_graph(tg_with_bias, 'statistics_computation')
