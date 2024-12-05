@@ -130,14 +130,14 @@ class TestPostTrainingQuantizationApi:
 
             if isinstance(kqw.layer, layers.DepthwiseConv2D):
                 conv_quantizer = kqw.weights_quantizers[DEPTHWISE_KERNEL]
-                num_output_chnnels = kqw.layer.depthwise_kernel.shape[-1] * kqw.layer.depthwise_kernel.shape[-2]
+                num_output_channels = kqw.layer.depthwise_kernel.shape[-1] * kqw.layer.depthwise_kernel.shape[-2]
             else:
                 conv_quantizer = kqw.weights_quantizers[KERNEL]
-                num_output_chnnels = kqw.layer.kernel.shape[-1]
+                num_output_channels = kqw.layer.kernel.shape[-1]
 
             assert conv_quantizer.per_channel
             assert conv_quantizer.quantization_method[0] == QuantizationMethod.POWER_OF_TWO
-            assert len(conv_quantizer.threshold) == num_output_chnnels
+            assert len(conv_quantizer.threshold) == num_output_channels
             for t in conv_quantizer.threshold:
                 assert np.log2(np.abs(t)).astype(int) == np.log2(np.abs(t))
                 
