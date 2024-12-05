@@ -27,6 +27,7 @@ from model_compression_toolkit.core.common.quantization.quantization_params_gene
 def hist():
     # TODO: can build a tensor with specific distribution to control the expected threshold results
     # TODO: or at least force at least one count to be greater than 1
+    np.random.seed(42)
     size = (32, 32, 3)
     num_bins = 2048
     x = np.random.uniform(-7, 7, size=size).flatten()
