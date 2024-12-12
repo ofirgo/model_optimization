@@ -98,7 +98,7 @@ class TestPostTrainingQuantizationApi:
     # TODO:
     #   [V] TPC - extract from test (local)
     #   [V] rep dataset
-    #   [] model - use real model (MBV2)? or at least more complicated model structure and layers.
+    #   [V] model - use real model (MBV2)? or at least more complicated model structure and layers.
     #   [] [pot, symmetric, uniform] X [w, a, w&a]
     #   ! Features are e2e-tested separately (folding, bc, snc...)
 
