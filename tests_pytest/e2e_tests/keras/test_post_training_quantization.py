@@ -70,7 +70,7 @@ def model_residual():
     return keras.Model(inputs=inputs, outputs=x)
 
 
-def set_tpc(weights_quantizer):
+def set_tpc(weights_quantizer, per_channel):
     # TODO: we need to select a default TPC for test, which is the one we want to verify e2e for
     #   (has all basic supported operators [TPC] and fusions and basic cfgs [TP Model])
     #   Maybe with the new system we can save few TPC Model JSONs for different tests typs (quantization methods and mixed precision configs).
@@ -79,7 +79,7 @@ def set_tpc(weights_quantizer):
     att_cfg_noquant = AttributeQuantizationConfig()
     att_cfg_quant = AttributeQuantizationConfig(weights_quantization_method=weights_quantizer,
                                                 weights_n_bits=8,
-                                                weights_per_channel_threshold=True,
+                                                weights_per_channel_threshold=per_channel,
                                                 enable_weights_quantization=True)
 
     op_cfg = OpQuantizationConfig(default_weight_attr_config=att_cfg_quant,
@@ -103,24 +103,24 @@ def set_tpc(weights_quantizer):
 
 @pytest.fixture
 def tpc_factory():
-    def _tpc_factory(quant_method):
-        return set_tpc(quant_method)
+    def _tpc_factory(quant_method, per_channel):
+        return set_tpc(quant_method, per_channel)
     return _tpc_factory
 
 
-def _verify_weights_quantizer_params(quant_method, weights_quantizer, num_output_channels):
-    assert weights_quantizer.per_channel
+def _verify_weights_quantizer_params(quant_method, weights_quantizer, params_shape, per_channel):
+    assert weights_quantizer.per_channel == per_channel
     assert weights_quantizer.quantization_method[0] == quant_method
 
     if quant_method == QuantizationMethod.POWER_OF_TWO:
-        assert len(weights_quantizer.threshold) == num_output_channels
+        assert len(weights_quantizer.threshold) == params_shape
         for t in weights_quantizer.threshold:
             assert np.log2(np.abs(t)).astype(int) == np.log2(np.abs(t))
     elif quant_method == QuantizationMethod.SYMMETRIC:
-        assert len(weights_quantizer.threshold) == num_output_channels
+        assert len(weights_quantizer.threshold) == params_shape
     elif quant_method == QuantizationMethod.UNIFORM:
-        assert len(weights_quantizer.min_range) == num_output_channels
-        assert len(weights_quantizer.max_range) == num_output_channels
+        assert len(weights_quantizer.min_range) == params_shape
+        assert len(weights_quantizer.max_range) == params_shape
 
 
 class TestPostTrainingQuantizationApi:
@@ -149,10 +149,11 @@ class TestPostTrainingQuantizationApi:
     @pytest.mark.parametrize("quant_method", [QuantizationMethod.POWER_OF_TWO,
                                               QuantizationMethod.SYMMETRIC,
                                               QuantizationMethod.UNIFORM])
+    @pytest.mark.parametrize("per_channel", [True, False])
     @pytest.mark.parametrize("model", [model_basic(), model_residual()])
-    def test_ptq_pot_weights_only(self, model, rep_data_gen, tpc_factory, quant_method):
+    def test_ptq_pot_weights_only(self, model, rep_data_gen, tpc_factory, quant_method, per_channel):
 
-        tpc = tpc_factory(quant_method)
+        tpc = tpc_factory(quant_method, per_channel)
         q_model, quantization_info = keras_post_training_quantization(model, rep_data_gen,
                                                                       target_platform_capabilities=tpc)
 
@@ -172,7 +173,8 @@ class TestPostTrainingQuantizationApi:
                 weights_quantizer = quantize_wrapper.weights_quantizers[KERNEL]
                 num_output_channels = quantize_wrapper.layer.kernel.shape[-1]
 
-            _verify_weights_quantizer_params(quant_method, weights_quantizer, num_output_channels)
+            params_shape = num_output_channels if per_channel else 1
+            _verify_weights_quantizer_params(quant_method, weights_quantizer, params_shape, per_channel)
 
 
                 
