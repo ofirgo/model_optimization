@@ -45,15 +45,29 @@ def rep_data_gen():
     return reppresentative_dataset
 
 
-@pytest.fixture
-def model():
-    # inputs = layers.Input(shape=INPUT_SHAPE)
-    # x = layers.Conv2D(2, 3, padding='same')(inputs)
-    # x = layers.BatchNormalization()(x)
-    # x = layers.Activation('relu')(x)
-    # return tf.keras.models.Model(inputs=inputs, outputs=x)
-    return MobileNetV2()
+def model_basic():
+    inputs = layers.Input(shape=INPUT_SHAPE)
+    x = layers.Conv2D(2, 3, padding='same')(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation('relu')(x)
+    return tf.keras.models.Model(inputs=inputs, outputs=x)
 
+
+def model_residual():
+    inputs = layers.Input(shape=INPUT_SHAPE)
+    x1 = layers.Conv2D(2, 3, padding='same')(inputs)
+    x1 = layers.ReLU()(x1)
+
+    x2 = layers.Conv2D(2, 3, padding='same')(x1)
+    x2 = layers.BatchNormalization()(x2)
+    x2 = layers.ReLU()(x2)
+
+    x = layers.Add()([x1, x2])
+
+    x = layers.Flatten()(x)
+    x = layers.Dense(units=10, activation='softmax')(x)
+
+    return keras.Model(inputs=inputs, outputs=x)
 
 
 def set_tpc(weights_quantizer):
@@ -89,26 +103,33 @@ def set_tpc(weights_quantizer):
 
 @pytest.fixture
 def tpc_factory():
-    def _tpc_factory(weights_quantizer):
-        return set_tpc(weights_quantizer)
+    def _tpc_factory(quant_method):
+        return set_tpc(quant_method)
     return _tpc_factory
+
+
+def _verify_weights_quantizer_params(quant_method, weights_quantizer, num_output_channels):
+    assert weights_quantizer.per_channel
+    assert weights_quantizer.quantization_method[0] == quant_method
+
+    if quant_method == QuantizationMethod.POWER_OF_TWO:
+        assert len(weights_quantizer.threshold) == num_output_channels
+        for t in weights_quantizer.threshold:
+            assert np.log2(np.abs(t)).astype(int) == np.log2(np.abs(t))
+    elif quant_method == QuantizationMethod.SYMMETRIC:
+        assert len(weights_quantizer.threshold) == num_output_channels
+    elif quant_method == QuantizationMethod.UNIFORM:
+        assert len(weights_quantizer.min_range) == num_output_channels
+        assert len(weights_quantizer.max_range) == num_output_channels
 
 
 class TestPostTrainingQuantizationApi:
     # TODO:
-    #   [V] TPC - extract from test (local)
-    #   [V] rep dataset
-    #   [V] model - use real model (MBV2)? or at least more complicated model structure and layers.
-    #   [] [pot, symmetric, uniform] X [w, a, w&a]
-    #   ! Features are e2e-tested separately (folding, bc, snc...)
+    #   [a, w&a]
+    #   extend to also test with different settings? (bc, snc, etc.)
 
-    @pytest.mark.parametrize("weights_quantizer", [QuantizationMethod.POWER_OF_TWO])
-    def test_ptq_pot_weights_only(self, model, rep_data_gen, tpc_factory, weights_quantizer):
 
-        tpc = tpc_factory(weights_quantizer)
-        q_model, quantization_info = keras_post_training_quantization(model, rep_data_gen,
-                                                                      target_platform_capabilities=tpc)
-
+    def _verify_quantized_model_structure(self, model, q_model, quantization_info):
         assert q_model is not None and isinstance(q_model, keras.Model)
         assert quantization_info is not None and isinstance(quantization_info, UserInformation)
 
@@ -118,28 +139,42 @@ class TestPostTrainingQuantizationApi:
         assert len([l for l in q_model.layers if isinstance(l, MetadataLayer)]) == 1, \
             "Expects quantized model to have a metadata stored in a dedicated layer."
         # original_conv_layers = [l for l in model.layers if isinstance(l, layers.Conv2D)]
-        original_conv_layers = [l for l in model.layers if isinstance(l, (layers.Conv2D, layers.DepthwiseConv2D, layers.Dense))]
+        original_conv_layers = [l for l in model.layers if
+                                isinstance(l, (layers.Conv2D, layers.DepthwiseConv2D, layers.Dense))]
         quantized_conv_layers = [l for l in q_model.layers if isinstance(l, KerasQuantizationWrapper)]
         assert len(original_conv_layers) == len(quantized_conv_layers), \
             "Expects all conv layers from the original model to be wrapped with a KerasQuantizationWrapper."
 
+
+    @pytest.mark.parametrize("quant_method", [QuantizationMethod.POWER_OF_TWO,
+                                              QuantizationMethod.SYMMETRIC,
+                                              QuantizationMethod.UNIFORM])
+    @pytest.mark.parametrize("model", [model_basic(), model_residual()])
+    def test_ptq_pot_weights_only(self, model, rep_data_gen, tpc_factory, quant_method):
+
+        tpc = tpc_factory(quant_method)
+        q_model, quantization_info = keras_post_training_quantization(model, rep_data_gen,
+                                                                      target_platform_capabilities=tpc)
+
+        self._verify_quantized_model_structure(model, q_model, quantization_info)
+
         # Assert quantization properties
-        for kqw in quantized_conv_layers:
-            # assert isinstance(kqw.layer, layers.Conv2D)
-            assert isinstance(kqw.layer, (layers.Conv2D, layers.DepthwiseConv2D, layers.Dense))
+        quantized_conv_layers = [l for l in q_model.layers if isinstance(l, KerasQuantizationWrapper)]
+        for quantize_wrapper in quantized_conv_layers:
+            assert isinstance(quantize_wrapper.layer,
+                              (layers.Conv2D, layers.DepthwiseConv2D, layers.Dense, layers.Conv2DTranspose))
 
-            if isinstance(kqw.layer, layers.DepthwiseConv2D):
-                conv_quantizer = kqw.weights_quantizers[DEPTHWISE_KERNEL]
-                num_output_channels = kqw.layer.depthwise_kernel.shape[-1] * kqw.layer.depthwise_kernel.shape[-2]
+            if isinstance(quantize_wrapper.layer, layers.DepthwiseConv2D):
+                weights_quantizer = quantize_wrapper.weights_quantizers[DEPTHWISE_KERNEL]
+                num_output_channels = (quantize_wrapper.layer.depthwise_kernel.shape[-1]
+                                       * quantize_wrapper.layer.depthwise_kernel.shape[-2])
             else:
-                conv_quantizer = kqw.weights_quantizers[KERNEL]
-                num_output_channels = kqw.layer.kernel.shape[-1]
+                weights_quantizer = quantize_wrapper.weights_quantizers[KERNEL]
+                num_output_channels = quantize_wrapper.layer.kernel.shape[-1]
 
-            assert conv_quantizer.per_channel
-            assert conv_quantizer.quantization_method[0] == QuantizationMethod.POWER_OF_TWO
-            assert len(conv_quantizer.threshold) == num_output_channels
-            for t in conv_quantizer.threshold:
-                assert np.log2(np.abs(t)).astype(int) == np.log2(np.abs(t))
+            _verify_weights_quantizer_params(quant_method, weights_quantizer, num_output_channels)
+
+
                 
 
 

@@ -26,19 +26,11 @@ from model_compression_toolkit.core.common.quantization.quantization_params_gene
 
 @pytest.fixture
 def hist():
-    # TODO: can build a tensor with specific distribution to control the expected threshold results
-    # TODO: or at least force at least one count to be greater than 1
     np.random.seed(42)
     size = (32, 32, 3)
     num_bins = 2048
     x = np.random.uniform(-7, 7, size=size).flatten()
     count, bins = np.histogram(x, bins=num_bins)
-
-    # # Ensure at least one bin has a count greater than 3
-    # while count.max() <= 3:
-    #     # Add more data points to the histogram
-    #     x = np.concatenate((x, np.random.uniform(-7, 7, size=size).flatten()))
-    #     count, bin_edges = np.histogram(x, bins=num_bins)
 
     return count, bins
 
