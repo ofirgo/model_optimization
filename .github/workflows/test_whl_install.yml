@@ -2,6 +2,10 @@ name: Test whl install
 on:
   workflow_dispatch: # Allow manual triggers
     inputs:
+      version:
+        type: string
+        required: true
+        description: "Release version (e.g. 1.2.3). Corresponding tag (v1.2.3) should already exist."
       python_version:
         description: 'Python version'
         required: false
