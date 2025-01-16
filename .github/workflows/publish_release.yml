@@ -1,25 +1,50 @@
 name: Publish Release
 on:
   workflow_dispatch:  # Allow manual triggers
+    inputs:
+      version:
+        type: string
+        required: true
+        description: "Release version (e.g. 1.2.3). Corresponding tag (v1.2.3) should already exist."
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: v${{ inputs.version }}
       - name: Install Python 3
         uses: actions/setup-python@v5
         with:
-          python-version: 3.8
+          python-version: 3.11
+
+      - name: Validate version
+        shell: bash
+        run: |
+          pip install --upgrade pip packaging
+          python3 - <<END
+          from packaging.version import parse
+          if not parse("${{ inputs.version }}"):
+              exit(1)
+          END
+
+      - name: Update version
+        shell: bash
+        run: |
+          echo "__version__ = '${{ inputs.version }}'" >  model_compression_toolkit/version.py
+          echo "model_compression_toolkit/version.py content:"
+          cat model_compression_toolkit/version.py
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel twine
           pip install -r requirements.txt
-          pip install twine
       - name: Build package
         run: |
-          python setup.py sdist bdist_wheel
+          python -m build --wheel
       - name: Publish package
+        shell: bash
         run: |
           twine upload --repository pypi dist/* -u __token__ -p ${{ secrets.PYPI_API_KEY }}
 
