@@ -155,7 +155,7 @@ class ResourceUtilizationCalculator:
         if act_qcs and not {RUTarget.ACTIVATION, RUTarget.TOTAL}.intersection(ru_targets):    # pragma: no cover
             raise ValueError('Activation configuration passed but no relevant metric requested.')
         if RUTarget.ACTIVATION in ru_targets:
-            a_total = self.compute_activations_utilization(target_criterion, bitwidth_mode, act_qcs)
+            a_total = self.compute_activations_utilization(TargetInclusionCriterion.AnyQuantized, bitwidth_mode, act_qcs)
 
         ru = ResourceUtilization()
         if RUTarget.WEIGHTS in ru_targets:
@@ -232,7 +232,7 @@ class ResourceUtilizationCalculator:
             - Detailed per weight attribute utilization.
         """
         weight_attrs = self._get_target_weight_attrs(n, target_criterion)
-        if not weight_attrs:    # pragma: no cover
+        if not weight_attrs or all(not isinstance(attr, str) or 'weight' not in attr for attr in weight_attrs):    # pragma: no cover
             return Utilization(0, 0), {}
 
         attr_util = {}
