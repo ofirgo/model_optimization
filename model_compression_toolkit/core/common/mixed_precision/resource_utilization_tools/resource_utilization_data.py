@@ -72,7 +72,7 @@ def compute_resource_utilization_data(in_model: Any,
                                                      running_gptq=False)
 
     ru_calculator = ResourceUtilizationCalculator(transformed_graph, fw_impl, fw_info)
-    ru = ru_calculator.compute_resource_utilization(TargetInclusionCriterion.QConfigurable, BitwidthMode.Q8Bit,
+    ru = ru_calculator.compute_resource_utilization(TargetInclusionCriterion.AnyQuantized, BitwidthMode.Q8Bit,
                                                     ru_targets=set(RUTarget) - {RUTarget.BOPS})
     ru.bops, _ = ru_calculator.compute_bops(TargetInclusionCriterion.AnyQuantized, BitwidthMode.Float)
     return ru
@@ -121,7 +121,7 @@ def requires_mixed_precision(in_model: Any,
                                                  running_gptq=False)
 
     ru_calculator = ResourceUtilizationCalculator(transformed_graph, fw_impl, fw_info)
-    max_ru = ru_calculator.compute_resource_utilization(TargetInclusionCriterion.QConfigurable, BitwidthMode.QMaxBit,
+    max_ru = ru_calculator.compute_resource_utilization(TargetInclusionCriterion.AnyQuantized, BitwidthMode.QMaxBit,
                                                         ru_targets=target_resource_utilization.get_restricted_targets())
     return not target_resource_utilization.is_satisfied_by(max_ru)
 

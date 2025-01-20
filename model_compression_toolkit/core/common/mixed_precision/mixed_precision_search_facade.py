@@ -120,7 +120,7 @@ def search_bit_width(graph_to_search_cfg: Graph,
     result_bit_cfg = search_method_fn(search_manager,
                                       target_resource_utilization)
 
-    # if mp_config.refine_mp_solution:
-    #     result_bit_cfg = greedy_solution_refinement_procedure(result_bit_cfg, search_manager, target_resource_utilization)
+    if mp_config.refine_mp_solution:
+        result_bit_cfg = greedy_solution_refinement_procedure(result_bit_cfg, search_manager, target_resource_utilization)
 
     return result_bit_cfg
