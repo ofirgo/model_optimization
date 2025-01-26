@@ -17,7 +17,6 @@ import keras
 import pytest
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2
 from tensorflow.keras import layers
 
 from mct_quantizers import QuantizationMethod, KerasQuantizationWrapper
@@ -25,11 +24,10 @@ from mct_quantizers.keras.metadata import MetadataLayer
 from model_compression_toolkit.core.common.user_info import UserInformation
 from model_compression_toolkit.core.keras.constants import KERNEL, DEPTHWISE_KERNEL
 from model_compression_toolkit.ptq import keras_post_training_quantization
+from model_compression_toolkit.target_platform_capabilities import AttributeQuantizationConfig, OpQuantizationConfig, \
+    Signedness
 from model_compression_toolkit.target_platform_capabilities.constants import KERNEL_ATTR, BIAS_ATTR
-from model_compression_toolkit.target_platform_capabilities.target_platform import OpQuantizationConfig, Signedness, \
-    AttributeQuantizationConfig
-from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.v4.tp_model import generate_tp_model
-from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.v4.tpc_keras import generate_keras_tpc
+from tests.common_tests.helpers.tpcs_for_tests.v4.tpc import generate_tpc
 
 INPUT_SHAPE = (224, 224, 3)
 
@@ -71,10 +69,8 @@ def model_residual():
 
 
 def set_tpc(weights_quantizer, per_channel):
-    # TODO: we need to select a default TPC for test, which is the one we want to verify e2e for
-    #   (has all basic supported operators [TPC] and fusions and basic cfgs [TP Model])
-    #   Maybe with the new system we can save few TPC Model JSONs for different tests typs (quantization methods and mixed precision configs).
-    #   Another option is to have at least the basic configs (quant, no quant...) as test utils
+    # TODO: currently, running E2E test with IMX500 V4 TPC from tests package
+    #  we need to select a default TPC for tests, which is the one we want to verify e2e for.
 
     att_cfg_noquant = AttributeQuantizationConfig()
     att_cfg_quant = AttributeQuantizationConfig(weights_quantization_method=weights_quantizer,
@@ -95,9 +91,9 @@ def set_tpc(weights_quantizer, per_channel):
                                   simd_size=32,
                                   signedness=Signedness.AUTO)
 
-    tpm = generate_tp_model(default_config=op_cfg, base_config=op_cfg, mixed_precision_cfg_list=[op_cfg],
-                            name="test_tpm")
-    tpc = generate_keras_tpc(name='test_tpc', tp_model=tpm)
+
+    tpc = generate_tpc(default_config=op_cfg, base_config=op_cfg, mixed_precision_cfg_list=[op_cfg], name="test_tpc")
+
     return tpc
 
 
@@ -138,7 +134,6 @@ class TestPostTrainingQuantizationApi:
             "Expects BN folding in quantized model."
         assert len([l for l in q_model.layers if isinstance(l, MetadataLayer)]) == 1, \
             "Expects quantized model to have a metadata stored in a dedicated layer."
-        # original_conv_layers = [l for l in model.layers if isinstance(l, layers.Conv2D)]
         original_conv_layers = [l for l in model.layers if
                                 isinstance(l, (layers.Conv2D, layers.DepthwiseConv2D, layers.Dense))]
         quantized_conv_layers = [l for l in q_model.layers if isinstance(l, KerasQuantizationWrapper)]

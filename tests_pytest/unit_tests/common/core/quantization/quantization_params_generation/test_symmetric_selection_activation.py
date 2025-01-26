@@ -39,7 +39,7 @@ err_methods_to_test = [e.name for e in QuantizationErrorMethod if e != Quantizat
 
 
 @pytest.mark.parametrize("error_method", err_methods_to_test)
-def test_symmetric_threshold_selection_mse(error_method, hist):
+def test_symmetric_threshold_selection(error_method, hist):
     counts, bins = hist
 
     search_res = symmetric_selection_histogram(bins, counts, 2, 8, Mock(), Mock(), Mock(), Mock(),
