@@ -56,6 +56,7 @@ class TestMixedPrecisionLinearProgrammingSolver:
                                       RUTarget.BOPS: [[0.25] for _ in range(_num_configurable_layers)]}
 
         search_manager_mock.compute_ru_functions = {tt: [None, self._mock_compute_function] for tt in tested_targets}
+        search_manager_mock.non_conf_ru_dict = {tt: np.array([]) for tt in tested_targets}
 
         # Setting ordered return values for each call to 'search_manager.compute_metric_fn' during the execution of
         # the tested function.
@@ -64,13 +65,13 @@ class TestMixedPrecisionLinearProgrammingSolver:
         # {0: {0: 1, 1: 2, 2: 2.5}, 1: {0: 1, 1: 3, 2: 3.5}, 2: {0: 1, 1: 2.25, 2: 2.4}}
         search_manager_mock.compute_metric_fn.side_effect = [1, 2, 2.5, 3, 3.5, 2.25, 2.4]
 
-        search_manager_mock.non_conf_ru_dict = None
-        search_manager_mock.compute_resource_utilization_matrix.return_value = np.array([[1, 0.5, 0.25, 1, 0.5, 0.25, 1, 0.5, 0.25]])
+        search_manager_mock.compute_resource_utilization_matrix.return_value = np.array([[1, 0.5, 0.25, 1, 0.5, 0.25, 1, 0.5, 0.25]]).T
 
         mp_res = mp_integer_programming_search(search_manager_mock, target_resource_utilization)
 
         assert all([mp_res[i] == [1, 0, 2][i] for i in range(_num_configurable_layers)])
         # TODO: extend the verifications, can we check the values of arguments to inner function calls?
+        # TODO: add test with non configurable nodes
 
         # with patch.object(mp_integer_programming_search, '_formalize_problem') as mock_formalize_problem:
         #     mock_formalize_problem.side_effect = lambda *args, **kwargs: args  # Capture the arguments
