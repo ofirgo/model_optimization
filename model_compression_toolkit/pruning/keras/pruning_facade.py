@@ -13,24 +13,26 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Callable, Tuple
+from typing import Callable, Tuple, Union
 
 from model_compression_toolkit import get_target_platform_capabilities
 from model_compression_toolkit.constants import TENSORFLOW
+from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import TargetPlatformCapabilities
+from model_compression_toolkit.target_platform_capabilities.tpc_io_handler import load_target_platform_capabilities
 from model_compression_toolkit.verify_packages import FOUND_TF
 from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.resource_utilization import ResourceUtilization
 from model_compression_toolkit.core.common.pruning.pruner import Pruner
 from model_compression_toolkit.core.common.pruning.pruning_config import PruningConfig
 from model_compression_toolkit.core.common.pruning.pruning_info import PruningInfo
-from model_compression_toolkit.core.common.quantization.bit_width_config import BitWidthConfig
 from model_compression_toolkit.core.common.quantization.set_node_quantization_config import set_quantization_configuration_to_graph
 from model_compression_toolkit.core.graph_prep_runner import read_model_to_graph
 from model_compression_toolkit.logger import Logger
-from model_compression_toolkit.target_platform_capabilities.target_platform.targetplatform2framework import TargetPlatformCapabilities
 from model_compression_toolkit.core.common.quantization.quantization_config import DEFAULTCONFIG
 from model_compression_toolkit.target_platform_capabilities.constants import DEFAULT_TP_MODEL
 
 if FOUND_TF:
+    from model_compression_toolkit.target_platform_capabilities.targetplatform2framework.attach2keras import \
+        AttachTpcToKeras
     from model_compression_toolkit.core.keras.back2framework.float_model_builder import FloatKerasModelBuilder
     from model_compression_toolkit.core.keras.pruning.pruning_keras_implementation import PruningKerasImplementation
     from model_compression_toolkit.core.keras.default_framework_info import DEFAULT_KERAS_INFO
@@ -42,7 +44,8 @@ if FOUND_TF:
                                    target_resource_utilization: ResourceUtilization,
                                    representative_data_gen: Callable,
                                    pruning_config: PruningConfig = PruningConfig(),
-                                   target_platform_capabilities: TargetPlatformCapabilities = DEFAULT_KERAS_TPC) -> Tuple[Model, PruningInfo]:
+                                   target_platform_capabilities: Union[TargetPlatformCapabilities, str]
+                                   = DEFAULT_KERAS_TPC) -> Tuple[Model, PruningInfo]:
         """
         Perform structured pruning on a Keras model to meet a specified target resource utilization.
         This function prunes the provided model according to the target resource utilization by grouping and pruning
@@ -60,7 +63,7 @@ if FOUND_TF:
             target_resource_utilization (ResourceUtilization): The target Key Performance Indicators to be achieved through pruning.
             representative_data_gen (Callable): A function to generate representative data for pruning analysis.
             pruning_config (PruningConfig): Configuration settings for the pruning process. Defaults to standard config.
-            target_platform_capabilities (TargetPlatformCapabilities): Platform-specific constraints and capabilities. Defaults to DEFAULT_KERAS_TPC.
+            target_platform_capabilities (Union[TargetPlatformCapabilities, str]): Platform-specific constraints and capabilities. Defaults to DEFAULT_KERAS_TPC.
 
         Returns:
             Tuple[Model, PruningInfo]: A tuple containing the pruned Keras model and associated pruning information.
@@ -110,6 +113,11 @@ if FOUND_TF:
 
         # Instantiate the Keras framework implementation.
         fw_impl = PruningKerasImplementation()
+
+        target_platform_capabilities = load_target_platform_capabilities(target_platform_capabilities)
+        # Attach tpc model to framework
+        attach2keras = AttachTpcToKeras()
+        target_platform_capabilities = attach2keras.attach(target_platform_capabilities)
 
         # Convert the original Keras model to an internal graph representation.
         float_graph = read_model_to_graph(model,

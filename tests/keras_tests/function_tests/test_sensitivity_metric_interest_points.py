@@ -18,22 +18,24 @@ import numpy as np
 from keras.applications.densenet import DenseNet121
 from keras.applications.mobilenet_v2 import MobileNetV2
 
-from packaging import version
+from model_compression_toolkit.target_platform_capabilities.targetplatform2framework.attach2keras import \
+    AttachTpcToKeras
 
-from model_compression_toolkit.core.common.quantization.bit_width_config import BitWidthConfig
-from model_compression_toolkit.target_platform_capabilities.constants import KERNEL_ATTR
-
-if version.parse(tf.__version__) >= version.parse("2.13"):
+if tf.__version__ >= "2.13":
+    from keras.src.engine.input_layer import InputLayer
     from keras.src.layers.core import TFOpLambda
 else:
+    from keras.engine.input_layer import InputLayer
     from keras.layers.core import TFOpLambda
+
+from model_compression_toolkit.target_platform_capabilities.constants import KERNEL_ATTR
 
 from model_compression_toolkit.constants import AXIS
 from model_compression_toolkit.core.common.mixed_precision.distance_weighting import MpDistanceWeighting
 from model_compression_toolkit.core.common.mixed_precision.mixed_precision_quantization_config import \
     MixedPrecisionQuantizationConfig
 from model_compression_toolkit.core.common.mixed_precision.sensitivity_evaluation import get_mp_interest_points
-from model_compression_toolkit.core import DEFAULTCONFIG
+from model_compression_toolkit.core import DEFAULTCONFIG, CustomOpsetLayers
 from model_compression_toolkit.core.common.quantization.set_node_quantization_config import \
     set_quantization_configuration_to_graph
 from model_compression_toolkit.core.common.similarity_analyzer import compute_mse, compute_kl_divergence
@@ -66,7 +68,9 @@ def build_ip_list_for_test(in_model, num_interest_points_factor):
                                                                       c.activation_n_bits) for c in mixed_precision_cfg_list],
                                         name="sem_test")
 
-    graph.set_tpc(tpc)
+    fqc = AttachTpcToKeras().attach(tpc, custom_opset2layer={"Input": CustomOpsetLayers([InputLayer])})
+
+    graph.set_fqc(fqc)
     graph = set_quantization_configuration_to_graph(graph=graph,
                                                     quant_config=DEFAULTCONFIG,
                                                     mixed_precision_enable=True)

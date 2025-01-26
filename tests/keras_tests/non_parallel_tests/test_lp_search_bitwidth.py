@@ -37,6 +37,8 @@ from model_compression_toolkit.core.common.similarity_analyzer import compute_ms
 from model_compression_toolkit.core.keras.default_framework_info import DEFAULT_KERAS_INFO
 from model_compression_toolkit.core.keras.keras_implementation import KerasImplementation
 from model_compression_toolkit.target_platform_capabilities.constants import KERNEL_ATTR
+from model_compression_toolkit.target_platform_capabilities.targetplatform2framework.attach2keras import \
+    AttachTpcToKeras
 from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.latest import \
     get_op_quantization_configs
 from tests.keras_tests.tpc_keras import get_weights_only_mp_tpc_keras
@@ -59,18 +61,13 @@ class MockMixedPrecisionSearchManager:
         self.layer_to_bitwidth_mapping = {0: [0, 1, 2]}
         self.layer_to_ru_mapping = layer_to_ru_mapping
         self.compute_metric_fn = lambda x, y=None, z=None: {0: 2, 1: 1, 2: 0}[x[0]]
-        self.min_ru = {RUTarget.WEIGHTS: [[1], [1], [1]],
-                       RUTarget.ACTIVATION: [[1], [1], [1]],
-                       RUTarget.TOTAL: [[2], [2], [2]],
-                       RUTarget.BOPS: [[1], [1], [1]]}  # minimal resource utilization in the tests layer_to_ru_mapping
+        self.min_ru = {RUTarget.WEIGHTS: [1],
+                       RUTarget.ACTIVATION: [1],
+                       RUTarget.BOPS: [1]}  # minimal resource utilization in the tests layer_to_ru_mapping
 
-        self.compute_ru_functions = {RUTarget.WEIGHTS: (None, lambda v: [lpSum(v)]),
-                                     RUTarget.ACTIVATION: (None, lambda v: [i for i in v]),
-                                     RUTarget.TOTAL: (None, lambda v: [lpSum(v[0]) + i for i in v[1]]),
-                                     RUTarget.BOPS: (None, lambda v: [lpSum(v)])}
         self.max_ru_config = [0]
         self.config_reconstruction_helper = MockReconstructionHelper()
-        self.non_conf_ru_dict = None
+        self.non_conf_ru_dict = {RUTarget.WEIGHTS: None, RUTarget.ACTIVATION: None, RUTarget.BOPS: None}
 
     def compute_resource_utilization_matrix(self, target):
         # minus 1 is normalization by the minimal resource utilization (which is always 1 in this test)
@@ -78,16 +75,11 @@ class MockMixedPrecisionSearchManager:
             ru_matrix = [np.flip(np.array([ru.weights_memory - 1 for _, ru in self.layer_to_ru_mapping[0].items()]))]
         elif target == RUTarget.ACTIVATION:
             ru_matrix = [np.flip(np.array([ru.activation_memory - 1 for _, ru in self.layer_to_ru_mapping[0].items()]))]
-        elif target == RUTarget.TOTAL:
-            ru_matrix = [np.flip(np.array([ru.weights_memory - 1 for _, ru in self.layer_to_ru_mapping[0].items()])),
-                         np.flip(np.array([ru.activation_memory - 1 for _, ru in self.layer_to_ru_mapping[0].items()]))]
         elif target == RUTarget.BOPS:
             ru_matrix = [np.flip(np.array([ru.bops - 1 for _, ru in self.layer_to_ru_mapping[0].items()]))]
         else:
-            # not supposed to get here
-            ru_matrix = []
-
-        return np.array(ru_matrix)
+            raise ValueError('Not supposed to get here')
+        return np.array(ru_matrix).T
 
     def finalize_distance_metric(self, d):
         return d
@@ -123,6 +115,26 @@ class TestLpSearchBitwidth(unittest.TestCase):
         with self.assertRaises(Exception):
             bit_cfg = mp_integer_programming_search(mock_search_manager,
                                                     target_resource_utilization=target_resource_utilization)
+
+    def test_search_weights_only_with_non_conf(self):
+        target_resource_utilization = ResourceUtilization(weights_memory=2+11)
+        layer_to_ru_mapping = {0: {2: ResourceUtilization(weights_memory=1),
+                                   1: ResourceUtilization(weights_memory=2),
+                                   0: ResourceUtilization(weights_memory=3)}
+                               }
+        mock_search_manager = MockMixedPrecisionSearchManager(layer_to_ru_mapping)
+        mock_search_manager.non_conf_ru_dict = {RUTarget.WEIGHTS: np.array([5, 6])}
+        bit_cfg = mp_integer_programming_search(mock_search_manager,
+                                                target_resource_utilization=target_resource_utilization)
+
+        self.assertTrue(len(bit_cfg) == 1)
+        self.assertTrue(bit_cfg[0] == 1)
+
+        # make sure non_conf was taken into account and lower target has a different solution
+        target_resource_utilization = ResourceUtilization(weights_memory=2 + 10.9)
+        bit_cfg = mp_integer_programming_search(mock_search_manager,
+                                                target_resource_utilization=target_resource_utilization)
+        self.assertFalse(bit_cfg[0] == 1)
 
     def test_search_activation_only(self):
         target_resource_utilization = ResourceUtilization(activation_memory=2)
@@ -228,8 +240,11 @@ class TestSearchBitwidthConfiguration(unittest.TestCase):
             return None
 
         graph = keras_impl.model_reader(in_model, dummy_representative_dataset)  # model reading
+
+        fqc = AttachTpcToKeras().attach(tpc)
+
         graph.set_fw_info(fw_info)
-        graph.set_tpc(tpc)
+        graph.set_fqc(fqc)
         graph = set_quantization_configuration_to_graph(graph=graph,
                                                         quant_config=core_config.quantization_config,
                                                         mixed_precision_enable=True)

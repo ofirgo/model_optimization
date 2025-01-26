@@ -22,6 +22,7 @@ from model_compression_toolkit.core.common.mixed_precision.resource_utilization_
 
 default_ru = ResourceUtilization()
 custom_ru = ResourceUtilization(1, 2, 3, 4)
+mixed_ru = ResourceUtilization(activation_memory=5, bops=10)
 
 
 class TestResourceUtilizationObject(unittest.TestCase):
@@ -38,20 +39,18 @@ class TestResourceUtilizationObject(unittest.TestCase):
         self.assertTrue(custom_ru.bops, 4)
 
     def test_representation(self):
-        self.assertEqual(repr(default_ru), f"Weights_memory: {np.inf}, "
-                                           f"Activation_memory: {np.inf}, "
-                                           f"Total_memory: {np.inf}, "
-                                           f"BOPS: {np.inf}")
+        self.assertEqual(default_ru.get_summary_str(restricted=False), f"Weights memory: {np.inf}, "
+                                                                       f"Activation memory: {np.inf}, "
+                                                                       f"Total memory: {np.inf}, "
+                                                                       f"BOPS: {np.inf}")
+        self.assertEqual(default_ru.get_summary_str(restricted=True), "")
 
-        self.assertEqual(repr(custom_ru), f"Weights_memory: {1}, "
-                                          f"Activation_memory: {2}, "
-                                          f"Total_memory: {3}, "
-                                          f"BOPS: {4}")
+        self.assertEqual(mixed_ru.get_summary_str(restricted=False), f"Weights memory: {np.inf}, "
+                                                                     "Activation memory: 5, "
+                                                                     f"Total memory: {np.inf}, "
+                                                                     "BOPS: 10")
+        self.assertEqual(mixed_ru.get_summary_str(restricted=True), "Activation memory: 5, BOPS: 10")
 
     def test_ru_hold_constraints(self):
-        self.assertTrue(default_ru.holds_constraints(custom_ru))
-        self.assertFalse(custom_ru.holds_constraints(default_ru))
-        self.assertFalse(custom_ru.holds_constraints({RUTarget.WEIGHTS: 1,
-                                                      RUTarget.ACTIVATION: 1,
-                                                      RUTarget.TOTAL: 1,
-                                                      RUTarget.BOPS: 1}))
+        self.assertTrue(default_ru.is_satisfied_by(custom_ru))
+        self.assertFalse(custom_ru.is_satisfied_by(default_ru))

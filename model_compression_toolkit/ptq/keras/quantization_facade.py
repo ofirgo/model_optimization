@@ -22,16 +22,19 @@ from model_compression_toolkit.core.common.quantization.quantize_graph_weights i
 from model_compression_toolkit.core.common.visualization.tensorboard_writer import init_tensorboard_writer
 from model_compression_toolkit.logger import Logger
 from model_compression_toolkit.constants import TENSORFLOW
+from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import TargetPlatformCapabilities
+from model_compression_toolkit.target_platform_capabilities.tpc_io_handler import load_target_platform_capabilities
 from model_compression_toolkit.verify_packages import FOUND_TF
 from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.resource_utilization import ResourceUtilization
 from model_compression_toolkit.core.common.mixed_precision.mixed_precision_quantization_config import \
     MixedPrecisionQuantizationConfig
-from model_compression_toolkit.target_platform_capabilities.target_platform.targetplatform2framework import TargetPlatformCapabilities
 from model_compression_toolkit.core.runner import core_runner
 from model_compression_toolkit.ptq.runner import ptq_runner
 from model_compression_toolkit.metadata import create_model_metadata
 
 if FOUND_TF:
+    from model_compression_toolkit.target_platform_capabilities.targetplatform2framework.attach2keras import \
+        AttachTpcToKeras
     from model_compression_toolkit.core.keras.default_framework_info import DEFAULT_KERAS_INFO
     from model_compression_toolkit.core.keras.keras_implementation import KerasImplementation
     from model_compression_toolkit.core.keras.keras_model_validation import KerasModelValidation
@@ -41,6 +44,7 @@ if FOUND_TF:
 
     from model_compression_toolkit import get_target_platform_capabilities
     from mct_quantizers.keras.metadata import add_metadata
+
     DEFAULT_KERAS_TPC = get_target_platform_capabilities(TENSORFLOW, DEFAULT_TP_MODEL)
 
 
@@ -67,7 +71,7 @@ if FOUND_TF:
              representative_data_gen (Callable): Dataset used for calibration.
              target_resource_utilization (ResourceUtilization): ResourceUtilization object to limit the search of the mixed-precision configuration as desired.
              core_config (CoreConfig): Configuration object containing parameters of how the model should be quantized, including mixed precision parameters.
-             target_platform_capabilities (TargetPlatformCapabilities): TargetPlatformCapabilities to optimize the Keras model according to.
+             target_platform_capabilities (Union[TargetPlatformCapabilities, str]): TargetPlatformCapabilities to optimize the Keras model according to.
 
          Returns:
 
@@ -134,13 +138,19 @@ if FOUND_TF:
 
         fw_impl = KerasImplementation()
 
+        target_platform_capabilities = load_target_platform_capabilities(target_platform_capabilities)
+        attach2keras = AttachTpcToKeras()
+        framework_platform_capabilities = attach2keras.attach(
+            target_platform_capabilities,
+            custom_opset2layer=core_config.quantization_config.custom_tpc_opset_to_layer)
+
         # Ignore returned hessian service as PTQ does not use it
         tg, bit_widths_config, _, scheduling_info = core_runner(in_model=in_model,
                                                                 representative_data_gen=representative_data_gen,
                                                                 core_config=core_config,
                                                                 fw_info=fw_info,
                                                                 fw_impl=fw_impl,
-                                                                tpc=target_platform_capabilities,
+                                                                fqc=framework_platform_capabilities,
                                                                 target_resource_utilization=target_resource_utilization,
                                                                 tb_w=tb_w)
 
@@ -168,9 +178,9 @@ if FOUND_TF:
                                         fw_info)
 
         exportable_model, user_info = get_exportable_keras_model(graph_with_stats_correction)
-        if target_platform_capabilities.tp_model.add_metadata:
+        if framework_platform_capabilities.tpc.add_metadata:
             exportable_model = add_metadata(exportable_model,
-                                            create_model_metadata(tpc=target_platform_capabilities,
+                                            create_model_metadata(fqc=framework_platform_capabilities,
                                                                   scheduling_info=scheduling_info))
         return exportable_model, user_info
 

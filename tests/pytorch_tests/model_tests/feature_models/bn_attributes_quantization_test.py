@@ -16,17 +16,20 @@ import torch
 from torch import nn
 
 import model_compression_toolkit as mct
+import model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema as schema
 from mct_quantizers import QuantizationMethod, PytorchQuantizationWrapper
 from model_compression_toolkit import DefaultDict
+from model_compression_toolkit.core import CoreConfig, QuantizationConfig
 from model_compression_toolkit.core.pytorch.constants import GAMMA, BETA
-from model_compression_toolkit.target_platform_capabilities.constants import KERNEL_ATTR, PYTORCH_KERNEL, BIAS, BIAS_ATTR
-from tests.common_tests.helpers.generate_test_tp_model import generate_test_attr_configs, \
+from model_compression_toolkit.target_platform_capabilities.constants import KERNEL_ATTR, PYTORCH_KERNEL, BIAS, \
+    BIAS_ATTR
+from model_compression_toolkit.core.common.quantization.quantization_config import CustomOpsetLayers
+from tests.common_tests.helpers.generate_test_tpc import generate_test_attr_configs, \
     DEFAULT_WEIGHT_ATTR_CONFIG, KERNEL_BASE_CONFIG, generate_test_op_qc, BIAS_CONFIG
-from model_compression_toolkit.target_platform_capabilities.target_platform import Signedness
+from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import Signedness
 from tests.pytorch_tests.model_tests.base_pytorch_test import BasePytorchTest
 from tests.pytorch_tests.utils import get_layers_from_model_by_type
 
-tp = mct.target_platform
 
 
 def _generate_bn_quantized_tpm(quantize_linear):
@@ -50,59 +53,44 @@ def _generate_bn_quantized_tpm(quantize_linear):
                                        bias_config=attr_cfgs_dict[BIAS_CONFIG],
                                        enable_activation_quantization=False)
 
-    bn_op_qc = tp.OpQuantizationConfig(enable_activation_quantization=False,
-                                       default_weight_attr_config=default_attr_cfg,
-                                       attr_weights_configs_mapping={BETA: bn_attr_cfg, GAMMA: bn_attr_cfg},
-                                       activation_n_bits=8,
-                                       supported_input_activation_n_bits=8,
-                                       activation_quantization_method=QuantizationMethod.POWER_OF_TWO,
-                                       quantization_preserving=False,
-                                       fixed_scale=None,
-                                       fixed_zero_point=None,
-                                       simd_size=32,
-                                       signedness=Signedness.AUTO)
+    bn_op_qc = schema.OpQuantizationConfig(enable_activation_quantization=False,
+                                           default_weight_attr_config=default_attr_cfg,
+                                           attr_weights_configs_mapping={BETA: bn_attr_cfg, GAMMA: bn_attr_cfg},
+                                           activation_n_bits=8,
+                                           supported_input_activation_n_bits=8,
+                                           activation_quantization_method=QuantizationMethod.POWER_OF_TWO,
+                                           quantization_preserving=False,
+                                           fixed_scale=None,
+                                           fixed_zero_point=None,
+                                           simd_size=32,
+                                           signedness=Signedness.AUTO)
 
-    default_op_qc = tp.OpQuantizationConfig(enable_activation_quantization=False,
-                                            default_weight_attr_config=default_attr_cfg,
-                                            attr_weights_configs_mapping={},
-                                            activation_n_bits=8,
-                                            supported_input_activation_n_bits=8,
-                                            activation_quantization_method=QuantizationMethod.POWER_OF_TWO,
-                                            quantization_preserving=False,
-                                            fixed_scale=None,
-                                            fixed_zero_point=None,
-                                            simd_size=32,
-                                            signedness=Signedness.AUTO)
+    default_op_qc = schema.OpQuantizationConfig(enable_activation_quantization=False,
+                                                default_weight_attr_config=default_attr_cfg,
+                                                attr_weights_configs_mapping={},
+                                                activation_n_bits=8,
+                                                supported_input_activation_n_bits=8,
+                                                activation_quantization_method=QuantizationMethod.POWER_OF_TWO,
+                                                quantization_preserving=False,
+                                                fixed_scale=None,
+                                                fixed_zero_point=None,
+                                                simd_size=32,
+                                                signedness=Signedness.AUTO)
 
-    default_configuration_options = tp.QuantizationConfigOptions([default_op_qc])
-    linear_configuration_options = tp.QuantizationConfigOptions([linear_op_qc])
-    bn_configuration_options = tp.QuantizationConfigOptions([bn_op_qc])
+    default_configuration_options = schema.QuantizationConfigOptions(quantization_configurations=tuple([default_op_qc]))
+    linear_configuration_options = schema.QuantizationConfigOptions(quantization_configurations=tuple([linear_op_qc]))
+    bn_configuration_options = schema.QuantizationConfigOptions(quantization_configurations=tuple([bn_op_qc]))
 
-    generated_tpm = tp.TargetPlatformModel(default_configuration_options, name='bn_quantized_tpm')
-
-    with generated_tpm:
-
-        tp.OperatorsSet("Conv", linear_configuration_options)
-        tp.OperatorsSet("BN", bn_configuration_options)
+    generated_tpm = schema.TargetPlatformCapabilities(
+        default_qco=default_configuration_options,
+        tpc_minor_version=None,
+        tpc_patch_version=None,
+        tpc_platform_type=None,
+        operator_set=tuple([schema.OperatorsSet(name="Conv", qc_options=linear_configuration_options),
+                      schema.OperatorsSet(name="BN", qc_options=bn_configuration_options)]),
+        add_metadata=False, name='bn_quantized_tpm')
 
     return generated_tpm
-
-
-def _generate_bn_quantized_tpc(tp_model):
-    tpc = tp.TargetPlatformCapabilities(tp_model, name='bn_quantized_tpc')
-
-    with tpc:
-        tp.OperationsSetToLayers("Conv", [nn.Conv2d],
-                                 attr_mapping={
-                                     KERNEL_ATTR: DefaultDict(default_value=PYTORCH_KERNEL),
-                                     BIAS_ATTR: DefaultDict(default_value=BIAS)})
-
-        tp.OperationsSetToLayers("BN", [nn.BatchNorm2d],
-                                 attr_mapping={
-                                     GAMMA: DefaultDict(default_value=GAMMA),
-                                     BETA: DefaultDict(default_value=BETA)})
-
-    return tpc
 
 
 class BNAttributesQuantization(BasePytorchTest):
@@ -115,10 +103,18 @@ class BNAttributesQuantization(BasePytorchTest):
 
     def get_tpc(self):
         tpm = _generate_bn_quantized_tpm(self.quantize_linear)
-        return {self.test_name: _generate_bn_quantized_tpc(tpm)}
+        return {self.test_name: tpm}
 
     def get_core_configs(self):
-        return {self.test_name: mct.core.CoreConfig()}
+        return {self.test_name: CoreConfig(
+            quantization_config=QuantizationConfig(
+                custom_tpc_opset_to_layer={
+                    "Conv": CustomOpsetLayers([nn.Conv2d],
+                             {KERNEL_ATTR: DefaultDict(default_value=PYTORCH_KERNEL),
+                              BIAS_ATTR: DefaultDict(default_value=BIAS)}),
+                    "BN": CustomOpsetLayers([nn.BatchNorm2d], {GAMMA: DefaultDict(default_value=GAMMA),
+                                              BETA: DefaultDict(default_value=BETA)})
+                }))}
 
     def create_feature_network(self, input_shape):
         class BNAttributesNet(nn.Module):

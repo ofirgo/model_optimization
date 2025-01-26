@@ -31,7 +31,8 @@ from model_compression_toolkit.gptq.common.gptq_constants import REG_DEFAULT, LR
 from model_compression_toolkit.gptq.runner import gptq_runner
 from model_compression_toolkit.logger import Logger
 from model_compression_toolkit.metadata import create_model_metadata
-from model_compression_toolkit.target_platform_capabilities.target_platform import TargetPlatformCapabilities
+from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import TargetPlatformCapabilities
+from model_compression_toolkit.target_platform_capabilities.tpc_io_handler import load_target_platform_capabilities
 from model_compression_toolkit.verify_packages import FOUND_TORCH
 
 
@@ -47,6 +48,9 @@ if FOUND_TORCH:
     from torch.optim import Adam, Optimizer
     from model_compression_toolkit import get_target_platform_capabilities
     from mct_quantizers.pytorch.metadata import add_metadata
+    from model_compression_toolkit.target_platform_capabilities.targetplatform2framework.attach2pytorch import \
+        AttachTpcToPytorch
+
     DEFAULT_PYTORCH_TPC = get_target_platform_capabilities(PYTORCH, DEFAULT_TP_MODEL)
 
     def get_pytorch_gptq_config(n_epochs: int,
@@ -73,6 +77,7 @@ if FOUND_TORCH:
             regularization_factor (float): A floating point number that defines the regularization factor.
             hessian_batch_size (int): Batch size for Hessian computation in Hessian-based weights GPTQ.
             use_hessian_sample_attention (bool): whether to use Sample-Layer Attention score for weighted loss.
+            gradual_activation_quantization (bool, GradualActivationQuantizationConfig): If False, GradualActivationQuantization is disabled. If True, GradualActivationQuantization is enabled with the default settings. GradualActivationQuantizationConfig object can be passed to use non-default settings.
 
         returns:
             a GradientPTQConfig object to use when fine-tuning the quantized model using gptq.
@@ -100,7 +105,6 @@ if FOUND_TORCH:
         if regularization_factor is None:
             regularization_factor = REG_DEFAULT_SLA if use_hessian_sample_attention else REG_DEFAULT
 
-        loss = loss or multiple_tensors_mse_loss
         hessian_weights_config = None
         if use_hessian_sample_attention:
             if not use_hessian_based_weights:    # pragma: no cover
@@ -114,6 +118,9 @@ if FOUND_TORCH:
             hessian_weights_config = GPTQHessianScoresConfig(per_sample=False,
                                                              hessians_num_samples=GPTQ_HESSIAN_NUM_SAMPLES,
                                                              hessian_batch_size=hessian_batch_size)
+            
+        # If a loss was not passed (and was not initialized due to use_hessian_sample_attention), use the default loss
+        loss = loss or multiple_tensors_mse_loss
 
         if isinstance(gradual_activation_quantization, bool):
             gradual_quant_config = GradualActivationQuantizationConfig() if gradual_activation_quantization else None
@@ -140,11 +147,11 @@ if FOUND_TORCH:
                                                     core_config: CoreConfig = CoreConfig(),
                                                     gptq_config: GradientPTQConfig = None,
                                                     gptq_representative_data_gen: Callable = None,
-                                                    target_platform_capabilities: TargetPlatformCapabilities = DEFAULT_PYTORCH_TPC):
+                                                    target_platform_capabilities: Union[TargetPlatformCapabilities, str] = DEFAULT_PYTORCH_TPC):
         """
         Quantize a trained Pytorch module using post-training quantization.
         By default, the module is quantized using a symmetric constraint quantization thresholds
-        (power of two) as defined in the default TargetPlatformCapabilities.
+        (power of two) as defined in the default FrameworkQuantizationCapabilities.
         The module is first optimized using several transformations (e.g. BatchNormalization folding to
         preceding layers). Then, using a given dataset, statistics (e.g. min/max, histogram, etc.) are
         being collected for each layer's output (and input, depends on the quantization configuration).
@@ -164,7 +171,7 @@ if FOUND_TORCH:
             core_config (CoreConfig): Configuration object containing parameters of how the model should be quantized, including mixed precision parameters.
             gptq_config (GradientPTQConfig): Configuration for using gptq (e.g. optimizer).
             gptq_representative_data_gen (Callable): Dataset used for GPTQ training. If None defaults to representative_data_gen
-            target_platform_capabilities (TargetPlatformCapabilities): TargetPlatformCapabilities to optimize the PyTorch model according to.
+            target_platform_capabilities (Union[TargetPlatformCapabilities, str]): TargetPlatformCapabilities to optimize the PyTorch model according to.
 
         Returns:
             A quantized module and information the user may need to handle the quantized module.
@@ -209,6 +216,12 @@ if FOUND_TORCH:
 
         fw_impl = GPTQPytorchImplemantation()
 
+        target_platform_capabilities = load_target_platform_capabilities(target_platform_capabilities)
+        # Attach tpc model to framework
+        attach2pytorch = AttachTpcToPytorch()
+        framework_quantization_capabilities = attach2pytorch.attach(target_platform_capabilities,
+                                                             core_config.quantization_config.custom_tpc_opset_to_layer)
+
         # ---------------------- #
         # Core Runner
         # ---------------------- #
@@ -217,7 +230,7 @@ if FOUND_TORCH:
                                                                                       core_config=core_config,
                                                                                       fw_info=DEFAULT_PYTORCH_INFO,
                                                                                       fw_impl=fw_impl,
-                                                                                      tpc=target_platform_capabilities,
+                                                                                      fqc=framework_quantization_capabilities,
                                                                                       target_resource_utilization=target_resource_utilization,
                                                                                       tb_w=tb_w,
                                                                                       running_gptq=True)
@@ -246,9 +259,9 @@ if FOUND_TORCH:
                                         DEFAULT_PYTORCH_INFO)
 
         exportable_model, user_info = get_exportable_pytorch_model(graph_gptq)
-        if target_platform_capabilities.tp_model.add_metadata:
+        if framework_quantization_capabilities.tpc.add_metadata:
             exportable_model = add_metadata(exportable_model,
-                                            create_model_metadata(tpc=target_platform_capabilities,
+                                            create_model_metadata(fqc=framework_quantization_capabilities,
                                                                   scheduling_info=scheduling_info))
         return exportable_model, user_info
 

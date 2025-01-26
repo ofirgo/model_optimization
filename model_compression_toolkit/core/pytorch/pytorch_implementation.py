@@ -20,7 +20,7 @@ from typing import List, Any, Tuple, Callable, Type, Dict, Generator
 import numpy as np
 import torch
 from mct_quantizers import PytorchQuantizationWrapper, PytorchActivationQuantizationHolder
-from torch import sigmoid, softmax, add, cat, argmax
+from torch import sigmoid, softmax, add, cat, argmax, concat, concatenate
 from torch.nn import Conv2d, ConvTranspose2d, Linear
 from torch.nn import Module, Sigmoid, Softmax
 
@@ -52,6 +52,8 @@ from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.fu
     FunctionalLayerNorm
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.functional_linear import \
     FunctionalLinear
+from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.matmul_decomposition import \
+    MatMulDecomposition
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.linear_collapsing import \
     pytorch_linear_collapsing
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.multi_head_attention_decomposition \
@@ -264,6 +266,7 @@ class PytorchImplementation(FrameworkImplementation):
         return [ReshapeWithStaticShapes(),
                 MultiHeadAttentionDecomposition(),
                 ScaledDotProductDecomposition(),
+                MatMulDecomposition(),
                 TransformFunctionCallMethod(),
                 FunctionalConvSubstitution(fw_info),
                 FunctionalBatchNorm(),
@@ -427,10 +430,9 @@ class PytorchImplementation(FrameworkImplementation):
         Returns: True if the node should be considered an interest point, False otherwise.
         """
 
-        if any([node.is_match_type(_type) for _type in [Conv2d, Linear, ConvTranspose2d, Sigmoid, sigmoid, Softmax,
-                                                        softmax, operator.add, add, cat, operator.concat]]):
-            return True
-        return False
+        return any(node.is_match_type(_type) for _type in [Conv2d, Linear, ConvTranspose2d, Sigmoid, sigmoid, Softmax,
+                                                           softmax, operator.add, add, cat, concat, concatenate,
+                                                           operator.concat])
 
     def get_mp_node_distance_fn(self, n: BaseNode,
                                 compute_distance_fn: Callable = None,

@@ -15,12 +15,12 @@
 
 import torch.nn as nn
 import model_compression_toolkit as mct
+from tests.common_tests.helpers.tpcs_for_tests.v2.tpc import get_tpc
 from tests.pytorch_tests.model_tests.base_pytorch_feature_test import BasePytorchFeatureNetworkTest
 from model_compression_toolkit.target_platform_capabilities.constants import IMX500_TP_MODEL
 from model_compression_toolkit.constants import PYTORCH
 from mct_quantizers.pytorch.metadata import get_metadata
 
-tp = mct.target_platform
 
 
 class MaxCutModel(nn.Module):
@@ -42,9 +42,7 @@ class MaxCutModel(nn.Module):
 class ComputeMaxCutTest(BasePytorchFeatureNetworkTest):
 
     def get_tpc(self):
-        return mct.get_target_platform_capabilities(PYTORCH,
-                                                    IMX500_TP_MODEL,
-                                                    "v2")
+        return get_tpc()
 
     def create_networks(self):
         return MaxCutModel()

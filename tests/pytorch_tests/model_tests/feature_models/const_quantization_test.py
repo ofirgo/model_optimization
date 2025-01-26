@@ -17,18 +17,18 @@ import torch
 import torch.nn as nn
 import numpy as np
 import model_compression_toolkit as mct
-from model_compression_toolkit.target_platform_capabilities.target_platform.op_quantization_config import Signedness
-from model_compression_toolkit.core import MixedPrecisionQuantizationConfig
+import model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema as schema
+from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import Signedness
+from model_compression_toolkit.core import MixedPrecisionQuantizationConfig, CoreConfig, QuantizationConfig
 from model_compression_toolkit.core.pytorch.utils import to_torch_tensor, torch_tensor_to_numpy, set_model
+from model_compression_toolkit.core.common.quantization.quantization_config import CustomOpsetLayers
+from tests.common_tests.helpers.tpcs_for_tests.v4.tpc import get_tpc as get_tp_v4
+from tests.common_tests.helpers.tpcs_for_tests.v3.tpc import get_tpc as get_tp_v3
 from tests.pytorch_tests.model_tests.base_pytorch_feature_test import BasePytorchFeatureNetworkTest
 from tests.common_tests.helpers.tensors_compare import cosine_similarity
 from tests.pytorch_tests.utils import get_layers_from_model_by_type
-from tests.common_tests.helpers.generate_test_tp_model import generate_test_attr_configs, DEFAULT_WEIGHT_ATTR_CONFIG
-from model_compression_toolkit.target_platform_capabilities.constants import IMX500_TP_MODEL
-from model_compression_toolkit.constants import PYTORCH
-from mct_quantizers import PytorchQuantizationWrapper
-
-tp = mct.target_platform
+from tests.common_tests.helpers.generate_test_tpc import generate_test_attr_configs, DEFAULT_WEIGHT_ATTR_CONFIG
+from mct_quantizers import PytorchQuantizationWrapper, QuantizationMethod
 
 
 class ConstQuantizationNet(nn.Module):
@@ -60,10 +60,10 @@ class ConstQuantizationTest(BasePytorchFeatureNetworkTest):
         self.input_reverse_order = input_reverse_order
 
     def generate_inputs(self):
-        return [np.random.random(in_shape)+1 for in_shape in self.get_input_shapes()]
+        return [np.random.random(in_shape) + 1 for in_shape in self.get_input_shapes()]
 
     def get_tpc(self):
-        return mct.get_target_platform_capabilities(PYTORCH, IMX500_TP_MODEL, "v3")
+        return get_tp_v3()
 
     def create_networks(self):
         if self.input_reverse_order:
@@ -117,10 +117,10 @@ class AdvancedConstQuantizationTest(BasePytorchFeatureNetworkTest):
         return mct.core.ResourceUtilization(9e3)
 
     def generate_inputs(self):
-        return [np.random.random(in_shape)+1 for in_shape in self.get_input_shapes()]
+        return [np.random.random(in_shape) + 1 for in_shape in self.get_input_shapes()]
 
     def get_tpc(self):
-        return mct.get_target_platform_capabilities(PYTORCH, IMX500_TP_MODEL, "v3")
+        return get_tp_v3()
 
     def get_mixed_precision_config(self):
         return MixedPrecisionQuantizationConfig()
@@ -154,7 +154,7 @@ class MultiInputConstQuantizationNet(nn.Module):
         self.register_buffer('concatenate_const_3', to_torch_tensor(np.random.randint(-128, 127, size=(1, 3, 36, 36))))
         self.register_buffer('stack_const_1', to_torch_tensor(np.random.randint(-128, 127, size=(1, 39, 36, 36))))
         self.register_buffer('stack_const_2', to_torch_tensor(np.random.randint(-128, 127, size=(1, 39, 36, 36))))
-        self.register_buffer('gather_const', to_torch_tensor(np.random.randint(-128, 127, size=(1, 2*36*36))))
+        self.register_buffer('gather_const', to_torch_tensor(np.random.randint(-128, 127, size=(1, 2 * 36 * 36))))
 
     def forward(self, x):
         x = torch.cat([self.cat_const_1, x, self.cat_const_2], dim=2)
@@ -163,9 +163,9 @@ class MultiInputConstQuantizationNet(nn.Module):
                                self.concatenate_const_2, x,
                                self.concatenate_const_3, self.concatenate_const_1], dim=1)
         x = torch.stack([self.stack_const_1, x, self.stack_const_2], dim=1)
-        x = torch.reshape(x, (1, 3*39, 36, 36))
+        x = torch.reshape(x, (1, 3 * 39, 36, 36))
 
-        inds = torch.argmax(torch.reshape(x, (-1, 117, 36*36)), dim=2)
+        inds = torch.argmax(torch.reshape(x, (-1, 117, 36 * 36)), dim=2)
         b = torch.reshape(torch.gather(self.gather_const, 1, inds), (-1, 117, 1, 1))
         return x + b
 
@@ -179,7 +179,7 @@ class ConstQuantizationMultiInputTest(BasePytorchFeatureNetworkTest):
         return [np.random.randint(-128, 127, size=in_shape) for in_shape in self.get_input_shapes()]
 
     def get_tpc(self):
-        return mct.get_target_platform_capabilities(PYTORCH, IMX500_TP_MODEL, "v4")
+        return get_tp_v4()
 
     def create_networks(self):
         return MultiInputConstQuantizationNet()
@@ -203,9 +203,11 @@ class ConstQuantizationMultiInputTest(BasePytorchFeatureNetworkTest):
 class ExpandConstQuantizationNet(nn.Module):
     def __init__(self, batch_size):
         super().__init__()
-        self.register_buffer('cat_const', to_torch_tensor(np.random.randint(-128, 127, size=(batch_size, 3, 32, 32)).astype(np.float32)))
+        self.register_buffer('cat_const', to_torch_tensor(
+            np.random.randint(-128, 127, size=(batch_size, 3, 32, 32)).astype(np.float32)))
         self.register_parameter('expand_const',
-                                nn.Parameter(to_torch_tensor(np.random.randint(-128, 127, size=(1, 2, 32, 1)).astype(np.float32)),
+                                nn.Parameter(to_torch_tensor(
+                                    np.random.randint(-128, 127, size=(1, 2, 32, 1)).astype(np.float32)),
                                              requires_grad=False))
 
     def forward(self, x):
@@ -222,36 +224,40 @@ class ConstQuantizationExpandTest(BasePytorchFeatureNetworkTest):
     def generate_inputs(self):
         return [np.random.randint(-128, 127, size=in_shape).astype(np.float32) for in_shape in self.get_input_shapes()]
 
-    def get_tpc(self):
-        tp = mct.target_platform
-        attr_cfg = generate_test_attr_configs()
-        base_cfg = tp.OpQuantizationConfig(activation_quantization_method=tp.QuantizationMethod.POWER_OF_TWO,
-                                           enable_activation_quantization=True,
-                                           activation_n_bits=32,
-                                           supported_input_activation_n_bits=32,
-                                           default_weight_attr_config=attr_cfg[DEFAULT_WEIGHT_ATTR_CONFIG],
-                                           attr_weights_configs_mapping={},
-                                           quantization_preserving=False,
-                                           fixed_scale=1.0,
-                                           fixed_zero_point=0,
-                                           simd_size=32,
-                                           signedness=Signedness.AUTO)
+    def get_core_config(self):
+        return CoreConfig(quantization_config=QuantizationConfig(custom_tpc_opset_to_layer=
+                                                                 {"WeightQuant": CustomOpsetLayers([torch.Tensor.expand, torch.cat])}))
 
-        default_configuration_options = tp.QuantizationConfigOptions([base_cfg])
+    def get_tpc(self):
+        attr_cfg = generate_test_attr_configs()
+        base_cfg = schema.OpQuantizationConfig(activation_quantization_method=QuantizationMethod.POWER_OF_TWO,
+                                               enable_activation_quantization=True,
+                                               activation_n_bits=32,
+                                               supported_input_activation_n_bits=32,
+                                               default_weight_attr_config=attr_cfg[DEFAULT_WEIGHT_ATTR_CONFIG],
+                                               attr_weights_configs_mapping={},
+                                               quantization_preserving=False,
+                                               fixed_scale=1.0,
+                                               fixed_zero_point=0,
+                                               simd_size=32,
+                                               signedness=Signedness.AUTO)
+
+        default_configuration_options = schema.QuantizationConfigOptions(quantization_configurations=tuple([base_cfg]))
 
         const_config = base_cfg.clone_and_edit(enable_activation_quantization=False,
                                                default_weight_attr_config=base_cfg.default_weight_attr_config.clone_and_edit(
-                                                   enable_weights_quantization=True, weights_per_channel_threshold=False,
-                                                   weights_quantization_method=tp.QuantizationMethod.POWER_OF_TWO))
-        const_configuration_options = tp.QuantizationConfigOptions([const_config])
+                                                   enable_weights_quantization=True,
+                                                   weights_per_channel_threshold=False,
+                                                   weights_quantization_method=QuantizationMethod.POWER_OF_TWO))
+        const_configuration_options = schema.QuantizationConfigOptions(quantization_configurations=tuple([const_config]))
 
-        tp_model = tp.TargetPlatformModel(default_configuration_options)
-        with tp_model:
-            tp.OperatorsSet("WeightQuant", const_configuration_options)
-
-        tpc = tp.TargetPlatformCapabilities(tp_model)
-        with tpc:
-            tp.OperationsSetToLayers("WeightQuant", [torch.Tensor.expand, torch.cat])
+        tpc = schema.TargetPlatformCapabilities(
+            default_qco=default_configuration_options,
+            tpc_minor_version=None,
+            tpc_patch_version=None,
+            tpc_platform_type=None,
+            operator_set=tuple([schema.OperatorsSet(name="WeightQuant", qc_options=const_configuration_options)]),
+            add_metadata=False)
 
         return tpc
 

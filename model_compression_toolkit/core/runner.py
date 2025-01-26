@@ -12,44 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from collections import namedtuple
 
 import copy
-
-from typing import Callable, Tuple, Any, List, Dict
-
-import numpy as np
+from typing import Callable, Any, List, Optional
 
 from model_compression_toolkit.core.common import FrameworkInfo
+from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
 from model_compression_toolkit.core.common.fusion.graph_fuser import GraphFuser
-
+from model_compression_toolkit.core.common.graph.base_graph import Graph
 from model_compression_toolkit.core.common.graph.memory_graph.compute_graph_max_cut import compute_graph_max_cut, \
     SchedulerInfo
 from model_compression_toolkit.core.common.graph.memory_graph.memory_graph import MemoryGraph
 from model_compression_toolkit.core.common.hessian.hessian_info_service import HessianInfoService
+from model_compression_toolkit.core.common.mixed_precision.bit_width_setter import set_bit_widths
 from model_compression_toolkit.core.common.mixed_precision.mixed_precision_candidates_filter import \
     filter_candidates_for_mixed_precision
+from model_compression_toolkit.core.common.mixed_precision.mixed_precision_search_facade import search_bit_width
+from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.resource_utilization import \
+    ResourceUtilization
+from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.resource_utilization_calculator import \
+    ResourceUtilizationCalculator, TargetInclusionCriterion, BitwidthMode
 from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.resource_utilization_data import \
     requires_mixed_precision
+from model_compression_toolkit.core.common.network_editors.edit_network import edit_network_graph
+from model_compression_toolkit.core.common.quantization.core_config import CoreConfig
+from model_compression_toolkit.core.common.visualization.tensorboard_writer import TensorboardWriter, \
+    finalize_bitwidth_in_tb
 from model_compression_toolkit.core.graph_prep_runner import graph_preparation_runner
 from model_compression_toolkit.core.quantization_prep_runner import quantization_preparation_runner
 from model_compression_toolkit.logger import Logger
-from model_compression_toolkit.core.common.framework_implementation import FrameworkImplementation
-from model_compression_toolkit.core.common.graph.base_graph import Graph
-from model_compression_toolkit.core.common.mixed_precision.bit_width_setter import set_bit_widths
-from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.resource_utilization import ResourceUtilization, RUTarget
-from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.ru_aggregation_methods import MpRuAggregation
-from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.ru_functions_mapping import ru_functions_mapping
-from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.ru_methods import MpRuMetric
-from model_compression_toolkit.core.common.mixed_precision.mixed_precision_search_facade import search_bit_width
-from model_compression_toolkit.core.common.network_editors.edit_network import edit_network_graph
-from model_compression_toolkit.core.common.quantization.core_config import CoreConfig
-from model_compression_toolkit.target_platform_capabilities.target_platform.targetplatform2framework import TargetPlatformCapabilities
-from model_compression_toolkit.core.common.visualization.final_config_visualizer import \
-    WeightsFinalBitwidthConfigVisualizer, \
-    ActivationFinalBitwidthConfigVisualizer
-from model_compression_toolkit.core.common.visualization.tensorboard_writer import TensorboardWriter, \
-    finalize_bitwidth_in_tb
+from model_compression_toolkit.target_platform_capabilities.targetplatform2framework.framework_quantization_capabilities import \
+    FrameworkQuantizationCapabilities
 
 
 def core_runner(in_model: Any,
@@ -57,7 +50,7 @@ def core_runner(in_model: Any,
                 core_config: CoreConfig,
                 fw_info: FrameworkInfo,
                 fw_impl: FrameworkImplementation,
-                tpc: TargetPlatformCapabilities,
+                fqc: FrameworkQuantizationCapabilities,
                 target_resource_utilization: ResourceUtilization = None,
                 running_gptq: bool = False,
                 tb_w: TensorboardWriter = None):
@@ -77,7 +70,7 @@ def core_runner(in_model: Any,
         fw_info: Information needed for quantization about the specific framework (e.g., kernel channels indices,
         groups of layers by how they should be quantized, etc.).
         fw_impl: FrameworkImplementation object with a specific framework methods implementation.
-        tpc: TargetPlatformCapabilities object that models the inference target platform and
+        fqc: FrameworkQuantizationCapabilities object that models the inference target platform and
                                               the attached framework operator's information.
         target_resource_utilization: ResourceUtilization to constraint the search of the mixed-precision configuration for the model.
         tb_w: TensorboardWriter object for logging
@@ -88,7 +81,7 @@ def core_runner(in_model: Any,
     """
 
     # Warn is representative dataset has batch-size == 1
-    batch_data = iter(representative_data_gen()).__next__()
+    batch_data = next(iter(representative_data_gen()))
     if isinstance(batch_data, list):
         batch_data = batch_data[0]
     if batch_data.shape[0] == 1:
@@ -96,16 +89,18 @@ def core_runner(in_model: Any,
                        ' consider increasing the batch size')
 
     # Checking whether to run mixed precision quantization
-    if target_resource_utilization is not None:
-        if core_config.mixed_precision_config is None:
+    if target_resource_utilization is not None and target_resource_utilization.is_any_restricted():
+        if core_config.mixed_precision_config is None:  # pragma: no cover
             Logger.critical("Provided an initialized target_resource_utilization, that means that mixed precision quantization is "
                             "enabled, but the provided MixedPrecisionQuantizationConfig is None.")
+        if target_resource_utilization.activation_restricted() or target_resource_utilization.total_mem_restricted():
+            Logger.warning("Using an experimental feature max-cut for activation memory utilization estimation.")
         # Determine whether to use mixed precision or single precision based on target_resource_utilization.
         if requires_mixed_precision(in_model,
                                     target_resource_utilization,
                                     representative_data_gen,
                                     core_config,
-                                    tpc,
+                                    fqc,
                                     fw_info,
                                     fw_impl):
             core_config.mixed_precision_config.set_mixed_precision_enable()
@@ -116,7 +111,7 @@ def core_runner(in_model: Any,
                                      core_config.quantization_config,
                                      fw_info,
                                      fw_impl,
-                                     tpc,
+                                     fqc,
                                      core_config.bit_width_config,
                                      tb_w,
                                      mixed_precision_enable=core_config.is_mixed_precision_enabled,
@@ -138,7 +133,7 @@ def core_runner(in_model: Any,
     if core_config.is_mixed_precision_enabled:
         if core_config.mixed_precision_config.configuration_overwrite is None:
 
-            filter_candidates_for_mixed_precision(graph, target_resource_utilization, fw_info, tpc)
+            filter_candidates_for_mixed_precision(graph, target_resource_utilization, fw_info, fqc)
             bit_widths_config = search_bit_width(tg,
                                                  fw_info,
                                                  fw_impl,
@@ -151,8 +146,7 @@ def core_runner(in_model: Any,
                 f'Mixed Precision has overwrite bit-width configuration{core_config.mixed_precision_config.configuration_overwrite}')
             bit_widths_config = core_config.mixed_precision_config.configuration_overwrite
 
-        if (target_resource_utilization.activation_memory < np.inf or
-                target_resource_utilization.total_memory < np.inf):
+        if target_resource_utilization.activation_restricted() or target_resource_utilization.total_mem_restricted():
             Logger.warning(
                 f"Running mixed precision for activation compression, please note this feature is experimental and is "
                 f"subject to future changes. If you encounter an issue, please open an issue in our GitHub "
@@ -178,7 +172,7 @@ def core_runner(in_model: Any,
 
     _set_final_resource_utilization(graph=tg,
                                     final_bit_widths_config=bit_widths_config,
-                                    ru_functions_dict=ru_functions_mapping,
+                                    target_resource_utilization=target_resource_utilization,
                                     fw_info=fw_info,
                                     fw_impl=fw_impl)
 
@@ -216,7 +210,7 @@ def core_runner(in_model: Any,
 
 def _set_final_resource_utilization(graph: Graph,
                                     final_bit_widths_config: List[int],
-                                    ru_functions_dict: Dict[RUTarget, Tuple[MpRuMetric, MpRuAggregation]],
+                                    target_resource_utilization: Optional[ResourceUtilization],
                                     fw_info: FrameworkInfo,
                                     fw_impl: FrameworkImplementation):
     """
@@ -226,39 +220,24 @@ def _set_final_resource_utilization(graph: Graph,
     Args:
         graph: Graph to compute the resource utilization for.
         final_bit_widths_config: The final bit-width configuration to quantize the model accordingly.
-        ru_functions_dict: A mapping between a RUTarget and a pair of resource utilization method and resource utilization aggregation functions.
+        target_resource_utilization: Requested target resource utilization if relevant.
         fw_info: A FrameworkInfo object.
         fw_impl: FrameworkImplementation object with specific framework methods implementation.
 
     """
-
-    final_ru_dict = {}
-    for ru_target, ru_funcs in ru_functions_dict.items():
-        ru_method, ru_aggr = ru_funcs
-        if ru_target == RUTarget.BOPS:
-            final_ru_dict[ru_target] = \
-            ru_aggr(ru_method(final_bit_widths_config, graph, fw_info, fw_impl, False), False)[0]
-        else:
-            non_conf_ru = ru_method([], graph, fw_info, fw_impl)
-            conf_ru = ru_method(final_bit_widths_config, graph, fw_info, fw_impl)
-            if len(final_bit_widths_config) > 0 and len(non_conf_ru) > 0:
-                final_ru_dict[ru_target] = ru_aggr(np.concatenate([conf_ru, non_conf_ru]), False)[0]
-            elif len(final_bit_widths_config) > 0 and len(non_conf_ru) == 0:
-                final_ru_dict[ru_target] = ru_aggr(conf_ru, False)[0]
-            elif len(final_bit_widths_config) == 0 and len(non_conf_ru) > 0:
-                # final_bit_widths_config == 0 ==> no configurable nodes,
-                # thus, ru can be computed from non_conf_ru alone
-                final_ru_dict[ru_target] = ru_aggr(non_conf_ru, False)[0]
-            else:
-                # No relevant nodes have been quantized with affect on the given target - since we only consider
-                # in the model's final size the quantized layers size, this means that the final size for this target
-                # is zero.
-                Logger.warning(f"No relevant quantized layers for the ru target {ru_target} were found, the recorded "
-                               f"final ru for this target would be 0.")
-                final_ru_dict[ru_target] = 0
-
-    final_ru = ResourceUtilization()
-    final_ru.set_resource_utilization_by_target(final_ru_dict)
-    print(final_ru)
+    ru_targets = target_resource_utilization.get_restricted_targets() if target_resource_utilization else None
+    final_ru = None
+    if ru_targets:
+        ru_calculator = ResourceUtilizationCalculator(graph, fw_impl, fw_info)
+        w_qcs, a_qcs = None, None
+        if ru_calculator.is_custom_weights_config_applicable(ru_targets):
+            w_qcs = {n: n.final_weights_quantization_cfg for n in graph.nodes}
+        if ru_calculator.is_custom_activation_config_applicable(ru_targets):
+            a_qcs = {n: n.final_activation_quantization_cfg for n in graph.nodes}
+        final_ru = ru_calculator.compute_resource_utilization(TargetInclusionCriterion.AnyQuantized,
+                                                              BitwidthMode.QCustom,
+                                                              act_qcs=a_qcs, w_qcs=w_qcs, ru_targets=ru_targets)
+        summary = final_ru.get_summary_str(restricted=True)
+        Logger.info(f'Resource utilization for quantized mixed-precision targets:\n {summary}.')
     graph.user_info.final_resource_utilization = final_ru
     graph.user_info.mixed_precision_cfg = final_bit_widths_config

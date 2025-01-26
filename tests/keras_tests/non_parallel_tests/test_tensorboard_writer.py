@@ -25,15 +25,19 @@ from tensorboard.compat.proto.graph_pb2 import GraphDef
 
 import model_compression_toolkit as mct
 from model_compression_toolkit.constants import TENSORFLOW
+from model_compression_toolkit.core import QuantizationConfig
 from model_compression_toolkit.core.common.visualization.final_config_visualizer import \
     ActivationFinalBitwidthConfigVisualizer
 from model_compression_toolkit.target_platform_capabilities.constants import DEFAULT_TP_MODEL
 from model_compression_toolkit.core.keras.default_framework_info import DEFAULT_KERAS_INFO
 from model_compression_toolkit.core.keras.keras_implementation import KerasImplementation
 from model_compression_toolkit.logger import Logger
+from model_compression_toolkit.core.common.quantization.quantization_config import CustomOpsetLayers
+from model_compression_toolkit.target_platform_capabilities.targetplatform2framework.attach2keras import \
+    AttachTpcToKeras
 from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.latest import generate_keras_tpc
 from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.latest import get_op_quantization_configs
-from tests.common_tests.helpers.generate_test_tp_model import generate_tp_model_with_activation_mp
+from tests.common_tests.helpers.generate_test_tpc import generate_tpc_with_activation_mp
 from tests.common_tests.helpers.prep_graph_for_func_test import prepare_graph_set_bit_widths
 from model_compression_toolkit.core.common.mixed_precision.distance_weighting import MpDistanceWeighting
 from model_compression_toolkit.core.common.similarity_analyzer import compute_mse
@@ -132,16 +136,17 @@ class TestFileLogger(unittest.TestCase):
         nodes_in_graph = len(g.node)
         self.assertTrue(nodes_in_graph == nodes_in_model)
 
-    def plot_tensor_sizes(self):
+    def plot_tensor_sizes(self, core_config):
         model = SingleOutputNet()
         base_config, _, default_config = get_op_quantization_configs()
-        tpc_model = generate_tp_model_with_activation_mp(
+        tpc_model = generate_tpc_with_activation_mp(
             base_cfg=base_config,
             default_config=default_config,
             mp_bitwidth_candidates_list=[(8, 8), (8, 4), (8, 2),
                                          (4, 8), (4, 4), (4, 2),
                                          (2, 8), (2, 4), (2, 2)])
-        tpc = generate_keras_tpc(name='mp_keras_tpc', tp_model=tpc_model)
+        tpc = generate_keras_tpc(name='mp_keras_tpc', tpc=tpc_model)
+        fqc =AttachTpcToKeras().attach(tpc, core_config.quantization_config.custom_tpc_opset_to_layer)
 
         # Hessian service assumes core should be initialized. This test does not do it, so we disable the use of hessians in MP
         cfg = mct.core.DEFAULTCONFIG
@@ -154,7 +159,7 @@ class TestFileLogger(unittest.TestCase):
                                           fw_impl=KerasImplementation(),
                                           fw_info=DEFAULT_KERAS_INFO,
                                           representative_data_gen=random_datagen,
-                                          tpc=tpc,
+                                          fqc=fqc,
                                           network_editor=[],
                                           quant_config=cfg,
                                           target_resource_utilization=mct.core.ResourceUtilization(),
@@ -193,7 +198,11 @@ class TestFileLogger(unittest.TestCase):
         mp_qc = mct.core.MixedPrecisionQuantizationConfig(num_of_images=1,
                                                           use_hessian_based_scores=False)
         core_config = mct.core.CoreConfig(mixed_precision_config=mp_qc,
+                                          quantization_config=
+                                          QuantizationConfig(custom_tpc_opset_to_layer=
+                                                             {"Input": CustomOpsetLayers([layers.InputLayer])}),
                                           debug_config=mct.core.DebugConfig(analyze_similarity=True))
+
         quantized_model, _ = mct.ptq.keras_post_training_quantization(self.model,
                                                                       rep_data,
                                                                       target_resource_utilization=mct.core.ResourceUtilization(
@@ -217,7 +226,7 @@ class TestFileLogger(unittest.TestCase):
                                                                       target_platform_capabilities=self.get_tpc())
 
         # Test tensor size plotting
-        self.plot_tensor_sizes()
+        self.plot_tensor_sizes(core_config)
 
         # Disable Logger
         Logger.LOG_PATH = None

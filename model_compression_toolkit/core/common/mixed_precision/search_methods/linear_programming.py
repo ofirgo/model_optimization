@@ -16,7 +16,7 @@
 import numpy as np
 from pulp import *
 from tqdm import tqdm
-from typing import Dict, List, Tuple, Callable
+from typing import Dict, Tuple, Any, Optional
 
 from model_compression_toolkit.logger import Logger
 from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.resource_utilization import ResourceUtilization, RUTarget
@@ -27,7 +27,7 @@ SOLVER_TIME_LIMIT = 60
 
 
 def mp_integer_programming_search(search_manager: MixedPrecisionSearchManager,
-                                  target_resource_utilization: ResourceUtilization = None) -> List[int]:
+                                  target_resource_utilization: ResourceUtilization = None) -> np.ndarray:
     """
     Searching and returning a mixed-precision configuration using an ILP optimization solution.
     It first builds a mapping from each layer's index (in the model) to a dictionary that maps the
@@ -44,7 +44,7 @@ def mp_integer_programming_search(search_manager: MixedPrecisionSearchManager,
         consumption).
 
     Returns:
-        The mixed-precision configuration (list of indices. Each indicates the bitwidth index of a node).
+        The mixed-precision configuration (1-D array of indices. Each indicates the bitwidth index of a node).
 
     """
 
@@ -73,7 +73,7 @@ def mp_integer_programming_search(search_manager: MixedPrecisionSearchManager,
 
     assert lp_problem.status == LpStatusOptimal, Logger.critical(
         "No solution was found during solving the LP problem")
-    Logger.info(LpStatus[lp_problem.status])
+    Logger.info(f"ILP status: {LpStatus[lp_problem.status]}")
 
     # Take the bitwidth index only if its corresponding indicator is one.
     config = np.asarray(
@@ -82,7 +82,7 @@ def mp_integer_programming_search(search_manager: MixedPrecisionSearchManager,
          in layer_to_indicator_vars_mapping.values()]
     ).flatten()
 
-    if target_resource_utilization.bops < np.inf:
+    if target_resource_utilization.bops_restricted():
         return search_manager.config_reconstruction_helper.reconstruct_config_from_virtual_graph(config)
     else:
         return config
@@ -167,72 +167,95 @@ def _formalize_problem(layer_to_indicator_vars_mapping: Dict[int, Dict[int, LpVa
         indicators_arr = np.array(indicators)
         indicators_matrix = np.diag(indicators_arr)
 
-        for target, ru_value in target_resource_utilization.get_resource_utilization_dict().items():
-            if not np.isinf(ru_value):
-                non_conf_ru_vector = None if search_manager.non_conf_ru_dict is None \
-                    else search_manager.non_conf_ru_dict.get(target)
-                _add_set_of_ru_constraints(search_manager=search_manager,
-                                           target=target,
-                                           target_resource_utilization_value=ru_value,
-                                           indicators_matrix=indicators_matrix,
-                                           lp_problem=lp_problem,
-                                           non_conf_ru_vector=non_conf_ru_vector)
+        _add_ru_constraints(search_manager=search_manager,
+                            target_resource_utilization=target_resource_utilization,
+                            indicators_matrix=indicators_matrix,
+                            lp_problem=lp_problem,
+                            non_conf_ru_dict=search_manager.non_conf_ru_dict)
     else:  # pragma: no cover
         Logger.critical("Unable to execute mixed-precision search: 'target_resource_utilization' is None. "
                         "A valid 'target_resource_utilization' is required.")
     return lp_problem
 
 
-def _add_set_of_ru_constraints(search_manager: MixedPrecisionSearchManager,
-                               target: RUTarget,
-                               target_resource_utilization_value: float,
-                               indicators_matrix: np.ndarray,
-                               lp_problem: LpProblem,
-                               non_conf_ru_vector: np.ndarray):
+def _add_ru_constraints(search_manager: MixedPrecisionSearchManager,
+                        target_resource_utilization: ResourceUtilization,
+                        indicators_matrix: np.ndarray,
+                        lp_problem: LpProblem,
+                        non_conf_ru_dict: Dict[RUTarget, np.ndarray]):
     """
-    Adding a constraint for the Lp problem for the given target resource utilization.
+    Adding targets constraints for the Lp problem for the given target resource utilization.
     The update to the Lp problem object is done inplace.
 
     Args:
         search_manager:  MixedPrecisionSearchManager object to be used for resource utilization constraints formalization.
-        target: A RUTarget.
-        target_resource_utilization_value: Target resource utilization value of the given target resource utilization
-        for which the constraint is added.
+        target_resource_utilization: Target resource utilization.
         indicators_matrix: A diagonal matrix of the Lp problem's indicators.
         lp_problem: An Lp problem object to add constraint to.
-        non_conf_ru_vector: A non-configurable nodes' resource utilization vector.
-
+        non_conf_ru_dict: A non-configurable nodes' resource utilization vectors for the constrained targets.
     """
+    ru_indicated_vectors = {}
+    # targets to add constraints for
+    constraints_targets = target_resource_utilization.get_restricted_targets()
+    # to add constraints for Total target we need to compute weight and activation
+    targets_to_compute = constraints_targets
+    if RUTarget.TOTAL in constraints_targets:
+        targets_to_compute = targets_to_compute.union({RUTarget.ACTIVATION, RUTarget.WEIGHTS}) - {RUTarget.TOTAL}
 
-    ru_matrix = search_manager.compute_resource_utilization_matrix(target)
-    indicated_ru_matrix = np.matmul(ru_matrix, indicators_matrix)
-    # Need to re-organize the tensor such that the configurations' axis will be second,
-    # and all metric values' axis will come afterword
-    indicated_ru_matrix = np.moveaxis(indicated_ru_matrix, source=len(indicated_ru_matrix.shape) - 1, destination=1)
+    for target in targets_to_compute:
+        ru_matrix = search_manager.compute_resource_utilization_matrix(target)    # num elements X num configurations
+        indicated_ru_matrix = np.matmul(ru_matrix.T, indicators_matrix)    # num elements X num configurations
 
-    # In order to get the result resource utilization according to a chosen set of indicators, we sum each row in
-    # the result matrix. Each row represents the resource utilization values for a specific resource utilization metric,
-    # such that only elements corresponding to a configuration which implied by the set of indicators will have some
-    # positive value different than 0 (and will contribute to the total resource utilization).
-    ru_sum_vector = np.array([
-        np.sum(indicated_ru_matrix[i], axis=0) +  # sum of metric values over all configurations in a row
-        search_manager.min_ru[target][i] for i in range(indicated_ru_matrix.shape[0])])
+        # Sum the indicated values over all configurations, and add the value for minimal configuration once.
+        # Indicated utilization values are relative to the minimal configuration, i.e. they represent the extra memory
+        # that would be required if that configuration is selected).
+        # Each element in a vector is an lp object representing the configurations sum term for a memory element.
+        ru_vec = indicated_ru_matrix.sum(axis=1) + search_manager.min_ru[target]
 
-    # search_manager.compute_ru_functions contains a pair of ru_metric and ru_aggregation for each ru target
-    # get aggregated ru, considering both configurable and non-configurable nodes
-    if non_conf_ru_vector is None or len(non_conf_ru_vector) == 0:
-        aggr_ru = search_manager.compute_ru_functions[target][1](ru_sum_vector)
-    else:
-        aggr_ru = search_manager.compute_ru_functions[target][1](np.concatenate([ru_sum_vector, non_conf_ru_vector]))
+        non_conf_ru_vec = non_conf_ru_dict[target]
+        if non_conf_ru_vec is not None and non_conf_ru_vec.size:
+            # add non-conf value as additional mem elements so that they get aggregated
+            ru_vec = np.concatenate([ru_vec, non_conf_ru_vec])
+        ru_indicated_vectors[target] = ru_vec
 
-    for v in aggr_ru:
-        if isinstance(v, float):
-            if v > target_resource_utilization_value:
-                Logger.critical(
-                    f"The model cannot be quantized to meet the specified target resource utilization {target.value} "
-                    f"with the value {target_resource_utilization_value}.")  # pragma: no cover
-        else:
-            lp_problem += v <= target_resource_utilization_value
+    # add constraints only for the restricted targets in target resource utilization.
+    for target in constraints_targets:
+        target_resource_utilization_value = target_resource_utilization.get_resource_utilization_dict()[target]
+        aggr_ru = _aggregate_for_lp(ru_indicated_vectors, target)
+        for v in aggr_ru:
+            if isinstance(v, float):
+                if v > target_resource_utilization_value:
+                    Logger.critical(
+                        f"The model cannot be quantized to meet the specified target resource utilization {target.value} "
+                        f"with the value {target_resource_utilization_value}.")  # pragma: no cover
+            else:
+                lp_problem += v <= target_resource_utilization_value
+
+
+def _aggregate_for_lp(targets_ru_vec: Dict[RUTarget, Any], target: RUTarget) -> list:
+    """
+    Aggregate resource utilization values for the LP.
+
+    Args:
+        targets_ru_vec: resource utilization vectors for all precomputed targets.
+        target: resource utilization target.
+
+    Returns:
+        Aggregated resource utilization.
+    """
+    if target == RUTarget.TOTAL:
+        w = lpSum(targets_ru_vec[RUTarget.WEIGHTS])
+        act_ru_vec = targets_ru_vec[RUTarget.ACTIVATION]
+        return [w + v for v in act_ru_vec]
+
+    if target in [RUTarget.WEIGHTS, RUTarget.BOPS]:
+        return [lpSum(targets_ru_vec[target])]
+
+    if target == RUTarget.ACTIVATION:
+        # for max aggregation, each value constitutes a separate constraint
+        return list(targets_ru_vec[target])
+
+    raise ValueError(f'Unexpected target {target}.')    # pragma: no cover
 
 
 def _build_layer_to_metrics_mapping(search_manager: MixedPrecisionSearchManager,
@@ -261,9 +284,7 @@ def _build_layer_to_metrics_mapping(search_manager: MixedPrecisionSearchManager,
     Logger.info('Starting to evaluate metrics')
     layer_to_metrics_mapping = {}
 
-    is_bops_target_resource_utilization = target_resource_utilization.bops < np.inf
-
-    if is_bops_target_resource_utilization:
+    if target_resource_utilization.bops_restricted():
         origin_max_config = search_manager.config_reconstruction_helper.reconstruct_config_from_virtual_graph(search_manager.max_ru_config)
         max_config_value = search_manager.compute_metric_fn(origin_max_config)
     else:
@@ -284,7 +305,7 @@ def _build_layer_to_metrics_mapping(search_manager: MixedPrecisionSearchManager,
             mp_model_configuration[node_idx] = bitwidth_idx
 
             # Build a distance matrix using the function we got from the framework implementation.
-            if is_bops_target_resource_utilization:
+            if target_resource_utilization.bops_restricted():
                 # Reconstructing original graph's configuration from virtual graph's configuration
                 origin_mp_model_configuration = \
                     search_manager.config_reconstruction_helper.reconstruct_config_from_virtual_graph(

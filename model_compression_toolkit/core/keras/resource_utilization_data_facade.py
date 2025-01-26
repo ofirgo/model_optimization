@@ -13,16 +13,19 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Callable
+from typing import Callable, Union
 from model_compression_toolkit.core import MixedPrecisionQuantizationConfig, CoreConfig
 from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.resource_utilization import ResourceUtilization
 from model_compression_toolkit.logger import Logger
 from model_compression_toolkit.constants import TENSORFLOW
-from model_compression_toolkit.target_platform_capabilities.target_platform import TargetPlatformCapabilities
+from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import TargetPlatformCapabilities
 from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.resource_utilization_data import compute_resource_utilization_data
+from model_compression_toolkit.target_platform_capabilities.tpc_io_handler import load_target_platform_capabilities
 from model_compression_toolkit.verify_packages import FOUND_TF
 
 if FOUND_TF:
+    from model_compression_toolkit.target_platform_capabilities.targetplatform2framework.attach2keras import \
+        AttachTpcToKeras
     from model_compression_toolkit.target_platform_capabilities.constants import DEFAULT_TP_MODEL
     from model_compression_toolkit.core.keras.default_framework_info import DEFAULT_KERAS_INFO
     from model_compression_toolkit.core.keras.keras_implementation import KerasImplementation
@@ -36,7 +39,8 @@ if FOUND_TF:
                                         representative_data_gen: Callable,
                                         core_config: CoreConfig = CoreConfig(
                                             mixed_precision_config=MixedPrecisionQuantizationConfig()),
-                                        target_platform_capabilities: TargetPlatformCapabilities = KERAS_DEFAULT_TPC) -> ResourceUtilization:
+                                        target_platform_capabilities: Union[TargetPlatformCapabilities, str] = KERAS_DEFAULT_TPC
+                                        ) -> ResourceUtilization:
         """
         Computes resource utilization data that can be used to calculate the desired target resource utilization
         for mixed-precision quantization.
@@ -47,7 +51,7 @@ if FOUND_TF:
             in_model (Model): Keras model to quantize.
             representative_data_gen (Callable): Dataset used for calibration.
             core_config (CoreConfig): CoreConfig containing parameters for quantization and mixed precision of how the model should be quantized.
-            target_platform_capabilities (TargetPlatformCapabilities): TargetPlatformCapabilities to optimize the Keras model according to.
+            target_platform_capabilities (Union[TargetPlatformCapabilities, str]): FrameworkQuantizationCapabilities to optimize the Keras model according to.
 
         Returns:
 
@@ -77,6 +81,13 @@ if FOUND_TF:
                             "provided config is of an incorrect type.")
 
         fw_impl = KerasImplementation()
+
+        target_platform_capabilities = load_target_platform_capabilities(target_platform_capabilities)
+        # Attach tpc model to framework
+        attach2keras = AttachTpcToKeras()
+        target_platform_capabilities = attach2keras.attach(
+            target_platform_capabilities,
+            custom_opset2layer=core_config.quantization_config.custom_tpc_opset_to_layer)
 
         return compute_resource_utilization_data(in_model,
                                                  representative_data_gen,

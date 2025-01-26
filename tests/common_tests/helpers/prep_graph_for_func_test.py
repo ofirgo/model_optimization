@@ -18,19 +18,14 @@ from model_compression_toolkit.core import DEFAULTCONFIG, CoreConfig, DebugConfi
 from model_compression_toolkit.core.common.mixed_precision.bit_width_setter import set_bit_widths
 from model_compression_toolkit.core.common.mixed_precision.mixed_precision_search_facade import search_bit_width
 from model_compression_toolkit.core.common.model_collector import ModelCollector
-from model_compression_toolkit.core.common.quantization.bit_width_config import BitWidthConfig
 from model_compression_toolkit.core.common.quantization.quantization_params_generation.qparams_computation import \
     calculate_quantization_params
 from model_compression_toolkit.core.common.visualization.tensorboard_writer import init_tensorboard_writer
 from model_compression_toolkit.core.graph_prep_runner import graph_preparation_runner
 from model_compression_toolkit.core.quantization_prep_runner import quantization_preparation_runner
 
-from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.latest import generate_tp_model, \
+from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.latest import generate_tpc, \
     get_op_quantization_configs
-
-import model_compression_toolkit as mct
-
-tp = mct.target_platform
 
 
 def prepare_graph_with_configs(in_model,
@@ -38,6 +33,7 @@ def prepare_graph_with_configs(in_model,
                                fw_info,
                                representative_dataset,
                                get_tpc_func,
+                               attach2fw,
                                qc=DEFAULTCONFIG,
                                mixed_precision_enabled=False,
                                running_gptq=False):
@@ -46,8 +42,10 @@ def prepare_graph_with_configs(in_model,
 
     # To override the default TP in the test - pass a TPC generator function that includes a generation of the TP
     # and doesn't use the TP that is passed from outside.
-    _tp = generate_tp_model(default_config, base_config, op_cfg_list, "function_test")
+    _tp = generate_tpc(default_config, base_config, op_cfg_list, "function_test")
     tpc = get_tpc_func("function_test", _tp)
+
+    fqc = attach2fw.attach(tpc, qc.custom_tpc_opset_to_layer)
 
     # Read Model
     graph = graph_preparation_runner(in_model,
@@ -55,7 +53,7 @@ def prepare_graph_with_configs(in_model,
                                      quantization_config=qc,
                                      fw_info=fw_info,
                                      fw_impl=fw_impl,
-                                     tpc=tpc,
+                                     fqc=fqc,
                                      mixed_precision_enable=mixed_precision_enabled,
                                      running_gptq=running_gptq)
 
@@ -68,6 +66,7 @@ def prepare_graph_with_quantization_parameters(in_model,
                                                representative_dataset,
                                                get_tpc_func,
                                                input_shape,
+                                               attach2fw,
                                                qc=DEFAULTCONFIG,
                                                mixed_precision_enabled=False):
 
@@ -76,6 +75,7 @@ def prepare_graph_with_quantization_parameters(in_model,
                                        fw_info,
                                        representative_dataset,
                                        get_tpc_func,
+                                       attach2fw,
                                        qc,
                                        mixed_precision_enabled)
 
@@ -102,7 +102,7 @@ def prepare_graph_set_bit_widths(in_model,
                                  fw_info,
                                  network_editor,
                                  analyze_similarity,
-                                 tpc,
+                                 fqc,
                                  mp_cfg):
 
     # Config
@@ -126,7 +126,7 @@ def prepare_graph_set_bit_widths(in_model,
                                      quantization_config=quant_config,
                                      fw_info=fw_info,
                                      fw_impl=fw_impl,
-                                     tpc=tpc,
+                                     fqc=fqc,
                                      bit_width_config=core_config.bit_width_config,
                                      mixed_precision_enable=core_config.is_mixed_precision_enabled)
 

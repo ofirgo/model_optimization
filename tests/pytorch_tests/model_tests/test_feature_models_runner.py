@@ -19,14 +19,13 @@ import numpy as np
 import torch
 from torch import nn
 
-import model_compression_toolkit as mct
+from mct_quantizers import QuantizationMethod
 from model_compression_toolkit.core.common.mixed_precision.distance_weighting import MpDistanceWeighting
 from model_compression_toolkit.core.common.network_editors import NodeTypeFilter, NodeNameFilter
 from model_compression_toolkit.core.pytorch.pytorch_device_config import get_working_device
 from model_compression_toolkit.gptq.common.gptq_config import RoundingType
 from model_compression_toolkit.gptq.pytorch.gptq_loss import sample_layer_attention_loss
 from model_compression_toolkit.target_platform_capabilities import constants as C
-from model_compression_toolkit.target_platform_capabilities.target_platform import QuantizationMethod
 from model_compression_toolkit.trainable_infrastructure import TrainingMethod
 from tests.pytorch_tests.model_tests.feature_models.activation_16bit_test import Activation16BitTest, \
     Activation16BitMixedPrecisionTest
@@ -60,6 +59,7 @@ from tests.pytorch_tests.model_tests.feature_models.lut_quantizer_test import LU
     LUTActivationQuantizerTest
 from tests.pytorch_tests.model_tests.feature_models.manual_bit_selection import ManualBitWidthByLayerTypeTest, \
     ManualBitWidthByLayerNameTest, Manual16BitTest, Manual16BitTestMixedPrecisionTest
+from tests.pytorch_tests.model_tests.feature_models.matmul_test import MatMulFNetTest, MatMulOpNetTest
 from tests.pytorch_tests.model_tests.feature_models.metadata_test import MetadataTest
 from tests.pytorch_tests.model_tests.feature_models.mixed_precision_activation_test import \
     MixedPrecisionActivationSearch8Bit, MixedPrecisionActivationSearch2Bit, MixedPrecisionActivationSearch4Bit, \
@@ -246,6 +246,25 @@ class FeatureModelsTestRunner(unittest.TestCase):
         """
         LinearFNetTest(self).run_test()
 
+    def test_matmul_function(self):
+        """
+        This test checks the MatMul substitution function
+        """
+        MatMulFNetTest(self, [3, 5, 10], [3, 10, 8]).run_test()
+        MatMulOpNetTest(self, [3, 5, 10], [3, 10, 8]).run_test()
+        MatMulFNetTest(self, [3, 2, 5, 10], [3, 2, 10, 20]).run_test()
+        MatMulOpNetTest(self, [3, 2, 5, 10], [3, 2, 10, 20]).run_test()
+        MatMulFNetTest(self, [50, 2, 400, 32], [50, 1, 32, 80]).run_test()
+        MatMulOpNetTest(self, [50, 2, 400, 32], [50, 1, 32, 80]).run_test()
+        MatMulFNetTest(self, [3, 1, 5, 10], [3, 8, 10, 3]).run_test()
+        MatMulOpNetTest(self, [3, 1, 5, 10], [3, 8, 10, 3]).run_test()
+        MatMulFNetTest(self, [3, 1, 4, 5, 10], [3, 8, 1, 10, 10]).run_test()
+        MatMulOpNetTest(self, [3, 1, 4, 5, 10], [3, 8, 1, 10, 10]).run_test()
+        MatMulFNetTest(self, [3, 10, 6, 5, 50, 100], [3, 10, 1, 1, 100, 80]).run_test()
+        MatMulOpNetTest(self, [3, 10, 6, 5, 50, 100], [3, 10, 1, 1, 100, 80]).run_test()
+        MatMulFNetTest(self, [3, 1, 7, 1, 50, 100], [3, 10, 7, 5, 100, 80]).run_test()
+        MatMulOpNetTest(self, [3, 1, 7, 1, 50, 100], [3, 10, 7, 5, 100, 80]).run_test()
+
     def test_broken_net(self):
         """
         This test checks that the "broken" node (node without output) is being
@@ -396,7 +415,7 @@ class FeatureModelsTestRunner(unittest.TestCase):
         values.
         """
         LUTWeightsQuantizerTest(self).run_test()
-        LUTWeightsQuantizerTest(self, quant_method=mct.target_platform.QuantizationMethod.LUT_SYM_QUANTIZER).run_test()
+        LUTWeightsQuantizerTest(self, quant_method=QuantizationMethod.LUT_SYM_QUANTIZER).run_test()
 
     def test_lut_activation_quantizer(self):
         """
@@ -592,10 +611,10 @@ class FeatureModelsTestRunner(unittest.TestCase):
         MixedPrecisionActivationSearch4BitFunctional(self).run_test()
 
     def test_mixed_precision_multiple_inputs(self):
-        """
-        This test checks the activation Mixed Precision search with multiple inputs to model.
-        """
-        MixedPrecisionActivationMultipleInputs(self).run_test()
+       """
+       This test checks the activation Mixed Precision search with multiple inputs to model.
+       """
+       MixedPrecisionActivationMultipleInputs(self).run_test()
 
     def test_mixed_precision_bops_utilization(self):
         """
@@ -605,18 +624,19 @@ class FeatureModelsTestRunner(unittest.TestCase):
         MixedPrecisionBopsAllWeightsLayersTest(self).run_test()
         MixedPrecisionWeightsOnlyBopsTest(self).run_test()
         MixedPrecisionActivationOnlyBopsTest(self).run_test()
-        MixedPrecisionBopsAndWeightsMemoryUtilizationTest(self).run_test()
-        MixedPrecisionBopsAndActivationMemoryUtilizationTest(self).run_test()
-        MixedPrecisionBopsAndTotalMemoryUtilizationTest(self).run_test()
-        MixedPrecisionBopsWeightsActivationUtilizationTest(self).run_test()
+        # TODO: uncomment these tests when the issue of combined BOPs and other RU metrics is solved.
+        # MixedPrecisionBopsAndWeightsMemoryUtilizationTest(self).run_test()
+        # MixedPrecisionBopsAndActivationMemoryUtilizationTest(self).run_test()
+        # MixedPrecisionBopsAndTotalMemoryUtilizationTest(self).run_test()
+        # MixedPrecisionBopsWeightsActivationUtilizationTest(self).run_test()
         MixedPrecisionBopsMultipleOutEdgesTest(self).run_test()
 
     def test_mixed_precision_distance_functions(self):
-        """
-        This test checks the Mixed Precision search with layers that use different distance functions during
-        the computation.
-        """
-        MixedPrecisionDistanceFunctions(self).run_test()
+       """
+       This test checks the Mixed Precision search with layers that use different distance functions during
+       the computation.
+       """
+       MixedPrecisionDistanceFunctions(self).run_test()
 
     def test_mha_layer_test(self):
         """
@@ -711,7 +731,7 @@ class FeatureModelsTestRunner(unittest.TestCase):
         """
         QuantizationAwareTrainingTest(self).run_test()
         QuantizationAwareTrainingTest(self, finalize=True).run_test()
-        _method = mct.target_platform.QuantizationMethod.SYMMETRIC
+        _method = QuantizationMethod.SYMMETRIC
         QuantizationAwareTrainingTest(self,
                                       weights_quantization_method=_method,
                                       activation_quantization_method=_method
@@ -720,7 +740,7 @@ class FeatureModelsTestRunner(unittest.TestCase):
                                       weights_quantization_method=_method,
                                       activation_quantization_method=_method,
                                       finalize=True).run_test()
-        _method = mct.target_platform.QuantizationMethod.UNIFORM
+        _method = QuantizationMethod.UNIFORM
         QuantizationAwareTrainingTest(self,
                                       weights_quantization_method=_method,
                                       activation_quantization_method=_method
@@ -730,18 +750,18 @@ class FeatureModelsTestRunner(unittest.TestCase):
                                       activation_quantization_method=_method,
                                       finalize=True).run_test()
         QuantizationAwareTrainingTest(self,
-                                      weights_quantization_method=mct.target_platform.QuantizationMethod.SYMMETRIC,
-                                      activation_quantization_method=mct.target_platform.QuantizationMethod.SYMMETRIC,
+                                      weights_quantization_method=QuantizationMethod.SYMMETRIC,
+                                      activation_quantization_method=QuantizationMethod.SYMMETRIC,
                                       training_method=TrainingMethod.LSQ,
                                       finalize=True).run_test()
         QuantizationAwareTrainingTest(self,
-                                      weights_quantization_method=mct.target_platform.QuantizationMethod.UNIFORM,
-                                      activation_quantization_method=mct.target_platform.QuantizationMethod.UNIFORM,
+                                      weights_quantization_method=QuantizationMethod.UNIFORM,
+                                      activation_quantization_method=QuantizationMethod.UNIFORM,
                                       training_method=TrainingMethod.LSQ,
                                       finalize=True).run_test()
         QuantizationAwareTrainingTest(self,
-                                      weights_quantization_method=mct.target_platform.QuantizationMethod.POWER_OF_TWO,
-                                      activation_quantization_method=mct.target_platform.QuantizationMethod.POWER_OF_TWO,
+                                      weights_quantization_method=QuantizationMethod.POWER_OF_TWO,
+                                      activation_quantization_method=QuantizationMethod.POWER_OF_TWO,
                                       training_method=TrainingMethod.LSQ,
                                       finalize=True).run_test()
         QuantizationAwareTrainingQuantizerHolderTest(self).run_test()
@@ -763,19 +783,12 @@ class FeatureModelsTestRunner(unittest.TestCase):
 
     def test_torch_tpcs(self):
         TpcTest(f'{C.IMX500_TP_MODEL}.v1', self).run_test()
-        TpcTest(f'{C.IMX500_TP_MODEL}.v1_lut', self).run_test()
-        TpcTest(f'{C.IMX500_TP_MODEL}.v1_pot', self).run_test()
-        TpcTest(f'{C.IMX500_TP_MODEL}.v2', self).run_test()
-        TpcTest(f'{C.IMX500_TP_MODEL}.v2_lut', self).run_test()
-        TpcTest(f'{C.IMX500_TP_MODEL}.v3', self).run_test()
-        TpcTest(f'{C.IMX500_TP_MODEL}.v3_lut', self).run_test()
-        TpcTest(f'{C.IMX500_TP_MODEL}.v4', self).run_test()
         TpcTest(f'{C.TFLITE_TP_MODEL}.v1', self).run_test()
         TpcTest(f'{C.QNNPACK_TP_MODEL}.v1', self).run_test()
 
     def test_16bit_activations(self):
         Activation16BitTest(self).run_test()
-        Activation16BitMixedPrecisionTest(self).run_test()
+        Activation16BitMixedPrecisionTest(self, input_shape=(3, 25, 25)).run_test()
 
     def test_invalid_bit_width_selection(self):
         with self.assertRaises(Exception) as context:

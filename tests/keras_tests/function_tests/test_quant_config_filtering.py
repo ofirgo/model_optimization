@@ -12,22 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
-
 import unittest
-import numpy as np
-import model_compression_toolkit as mct
-import model_compression_toolkit.core.common.quantization.quantization_config as qc
-from model_compression_toolkit.constants import THRESHOLD, TENSORFLOW
-from model_compression_toolkit.target_platform_capabilities.constants import IMX500_TP_MODEL
-from model_compression_toolkit.core.common.quantization.quantization_params_generation.error_functions import _mse_error_histogram
-from model_compression_toolkit.core.common.collectors.histogram_collector import HistogramCollector
-from model_compression_toolkit.core.common.quantization.quantization_params_generation.power_of_two_selection import power_of_two_selection_tensor
-from model_compression_toolkit.core.common.graph import BaseNode
 from model_compression_toolkit.core.common.graph.functional_node import FunctionalNode
 from model_compression_toolkit.core.keras.constants import FUNCTION
 
 import tensorflow as tf
+
+from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import OperatorSetNames, \
+    QuantizationConfigOptions
+from model_compression_toolkit.target_platform_capabilities.schema.schema_functions import \
+    get_config_options_by_operators_set
+from model_compression_toolkit.target_platform_capabilities.targetplatform2framework.attach2keras import \
+    AttachTpcToKeras
+from tests.common_tests.helpers.generate_test_tpc import generate_custom_test_tpc
+from tests.common_tests.helpers.tpcs_for_tests.v3.tpc import get_tpc
+
 if tf.__version__ >= "2.13":
     from keras.src.layers import TFOpLambda
 else:
@@ -41,11 +40,23 @@ class TestKerasQuantConfigFiltering(unittest.TestCase):
 
     @staticmethod
     def get_tpc_default_16bit():
-        tpc = mct.get_target_platform_capabilities(TENSORFLOW, IMX500_TP_MODEL, 'v3')
-        # Force Mul base_config to 16bit only
-        mul_op_set = get_op_set('Mul', tpc.tp_model.operator_set)
-        mul_op_set.qc_options.base_config = [l for l in mul_op_set.qc_options.quantization_config_list if l.activation_n_bits == 16][0]
-        tpc.layer2qco[tf.multiply].base_config = mul_op_set.qc_options.base_config
+        tpc = get_tpc()
+        base_cfg_16 = [c for c in get_config_options_by_operators_set(tpc,
+                                                                      OperatorSetNames.MUL).quantization_configurations
+                       if c.activation_n_bits == 16][0].clone_and_edit()
+        qco_16 = QuantizationConfigOptions(base_config=base_cfg_16,
+                                           quantization_configurations=(tpc.default_qco.base_config,
+                                                                        base_cfg_16))
+        tpc = generate_custom_test_tpc(
+            name="custom_16_bit_tpc",
+            base_cfg=tpc.default_qco.base_config,
+            base_tpc=tpc,
+            operator_sets_dict={
+                OperatorSetNames.MUL: qco_16,
+                OperatorSetNames.GELU: qco_16,
+                OperatorSetNames.TANH: qco_16,
+            })
+
         return tpc
 
     def test_config_filtering(self):
@@ -60,6 +71,8 @@ class TestKerasQuantConfigFiltering(unittest.TestCase):
                               [], {}, functional_op=tf.divide)
 
         tpc = self.get_tpc_default_16bit()
+        tpc = AttachTpcToKeras().attach(tpc)
+
         node_qc_options = node.get_qco(tpc)
         self.assertTrue(node_qc_options.base_config.activation_n_bits == 16, "base_config should start with 16 bits.")
 

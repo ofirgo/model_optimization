@@ -19,13 +19,14 @@ import model_compression_toolkit as mct
 from model_compression_toolkit.constants import PYTORCH
 from model_compression_toolkit.core import MixedPrecisionQuantizationConfig
 from model_compression_toolkit.target_platform_capabilities.constants import IMX500_TP_MODEL
-from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.v4.tp_model import \
-    OPSET_MUL, OPSET_GELU, OPSET_TANH
+from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import OperatorSetNames, \
+    QuantizationConfigOptions
+from model_compression_toolkit.target_platform_capabilities.schema.schema_functions import \
+    get_config_options_by_operators_set
+from tests.common_tests.helpers.generate_test_tpc import generate_custom_test_tpc
+from tests.common_tests.helpers.tpcs_for_tests.v4.tpc import get_tpc
 from model_compression_toolkit.core.pytorch.utils import get_working_device
 from tests.pytorch_tests.model_tests.base_pytorch_feature_test import BasePytorchFeatureNetworkTest
-
-
-get_op_set = lambda x, x_list: [op_set for op_set in x_list if op_set.name == x][0]
 
 
 class Activation16BitNet(torch.nn.Module):
@@ -61,24 +62,48 @@ class Activation16BitNet(torch.nn.Module):
         return x
 
 
-def set_16bit_as_default(tpc, required_op_set, required_ops_list):
-    op_set = get_op_set(required_op_set, tpc.tp_model.operator_set)
-    op_set.qc_options.base_config = [l for l in op_set.qc_options.quantization_config_list if l.activation_n_bits == 16][0]
-    for op in required_ops_list:
-        tpc.layer2qco[op].base_config = [l for l in tpc.layer2qco[op].quantization_config_list if l.activation_n_bits == 16][0]
+class Activation16BitNetMP(torch.nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.register_buffer('add_const', torch.rand((3, 1, 1)))
+        self.register_buffer('sub_const', torch.rand((3, 1, 1)))
+        self.register_buffer('div_const', 2*torch.ones((3, 1, 1)))
+
+    def forward(self, x):
+        x = torch.mul(x, x)[:, :, :8, :8]
+        x1 = torch.add(x, self.add_const)
+        x = torch.sub(x, self.sub_const)
+        x = torch.mul(x, x1)
+        x = torch.reshape(x, (-1, 3, 2, 4, 8))
+        x = torch.reshape(x, (-1, 3, 8, 8))
+        x = torch.divide(x, self.div_const)
+
+        return x
 
 
 class Activation16BitTest(BasePytorchFeatureNetworkTest):
 
     def get_tpc(self):
-        tpc = mct.get_target_platform_capabilities(PYTORCH, IMX500_TP_MODEL, 'v4')
-        set_16bit_as_default(tpc, OPSET_MUL, [torch.mul, mul])
-        set_16bit_as_default(tpc, OPSET_GELU, [torch.nn.GELU, torch.nn.functional.gelu])
-        set_16bit_as_default(tpc, OPSET_TANH, [torch.nn.Tanh, torch.nn.functional.tanh, torch.tanh])
+        tpc = get_tpc()
+        base_cfg_16 = [c for c in get_config_options_by_operators_set(tpc, OperatorSetNames.MUL).quantization_configurations
+                       if c.activation_n_bits == 16][0].clone_and_edit()
+        qco_16 = QuantizationConfigOptions(base_config=base_cfg_16,
+                                           quantization_configurations=(tpc.default_qco.base_config,
+                                                                        base_cfg_16))
+        tpc = generate_custom_test_tpc(
+            name="custom_16_bit_tpc",
+            base_cfg=tpc.default_qco.base_config,
+            base_tpc=tpc,
+            operator_sets_dict={
+                OperatorSetNames.MUL: qco_16,
+                OperatorSetNames.GELU: qco_16,
+                OperatorSetNames.TANH: qco_16,
+            })
+
         return tpc
 
     def create_networks(self):
-        # Activation16BitNet()(torch.from_numpy(self.generate_inputs()[0]).type(torch.float32))
         return Activation16BitNet()
 
     def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
@@ -104,28 +129,33 @@ class Activation16BitTest(BasePytorchFeatureNetworkTest):
 class Activation16BitMixedPrecisionTest(Activation16BitTest):
 
     def get_tpc(self):
-        tpc = mct.get_target_platform_capabilities(PYTORCH, IMX500_TP_MODEL, 'v3')
-        mul_op_set = get_op_set('Mul', tpc.tp_model.operator_set)
-        mul_op_set.qc_options.base_config = [l for l in mul_op_set.qc_options.quantization_config_list if l.activation_n_bits == 16][0]
-        tpc.layer2qco[torch.mul].base_config = mul_op_set.qc_options.base_config
-        tpc.layer2qco[mul].base_config = mul_op_set.qc_options.base_config
-        mul_op_set.qc_options.quantization_config_list.extend(
-            [mul_op_set.qc_options.base_config.clone_and_edit(activation_n_bits=4),
-             mul_op_set.qc_options.base_config.clone_and_edit(activation_n_bits=2)])
-        tpc.layer2qco[torch.mul].quantization_config_list.extend([
-            tpc.layer2qco[torch.mul].base_config.clone_and_edit(activation_n_bits=4),
-            tpc.layer2qco[torch.mul].base_config.clone_and_edit(activation_n_bits=2)])
-        tpc.layer2qco[mul].quantization_config_list.extend([
-            tpc.layer2qco[mul].base_config.clone_and_edit(activation_n_bits=4),
-            tpc.layer2qco[mul].base_config.clone_and_edit(activation_n_bits=2)])
+        tpc = get_tpc()
+
+        mul_qco = get_config_options_by_operators_set(tpc, OperatorSetNames.MUL)
+        base_cfg_16 = [l for l in mul_qco.quantization_configurations if l.activation_n_bits == 16][0]
+        quantization_configurations = list(mul_qco.quantization_configurations)
+        quantization_configurations.extend([
+            base_cfg_16.clone_and_edit(activation_n_bits=4),
+            base_cfg_16.clone_and_edit(activation_n_bits=2)])
+
+        qco_16 = QuantizationConfigOptions(base_config=base_cfg_16,
+                                           quantization_configurations=quantization_configurations)
+
+        tpc = generate_custom_test_tpc(
+            name="custom_16_bit_tpc",
+            base_cfg=tpc.default_qco.base_config,
+            base_tpc=tpc,
+            operator_sets_dict={
+                OperatorSetNames.MUL: qco_16,
+            })
 
         return tpc
 
     def get_resource_utilization(self):
-        return mct.core.ResourceUtilization(activation_memory=200)
+        return mct.core.ResourceUtilization(activation_memory=5000)
 
     def create_networks(self):
-        return Activation16BitNet(use_concat=False, enable_head=False)
+        return Activation16BitNetMP()
 
     def get_mixed_precision_config(self):
         return MixedPrecisionQuantizationConfig()

@@ -18,14 +18,17 @@ from torch import softmax, sigmoid
 from torch.nn import Softmax, Sigmoid
 
 from model_compression_toolkit import DefaultDict
-from model_compression_toolkit.core import MixedPrecisionQuantizationConfig, ResourceUtilization
+from model_compression_toolkit.core import MixedPrecisionQuantizationConfig, ResourceUtilization, CoreConfig, \
+    QuantizationConfig
 from model_compression_toolkit.core.common.user_info import UserInformation
+from model_compression_toolkit.core.pytorch.reader.node_holders import DummyPlaceHolder
 from model_compression_toolkit.target_platform_capabilities.constants import KERNEL_ATTR, BIAS_ATTR, PYTORCH_KERNEL, \
     BIAS
-from model_compression_toolkit.target_platform_capabilities.target_platform import QuantizationConfigOptions, \
-    TargetPlatformModel, OperatorsSet, TargetPlatformCapabilities, OperationsSetToLayers
+from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import TargetPlatformCapabilities, OperatorsSet, \
+    QuantizationConfigOptions
+from model_compression_toolkit.core.common.quantization.quantization_config import CustomOpsetLayers
 from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.latest import get_op_quantization_configs
-from tests.common_tests.helpers.generate_test_tp_model import generate_tp_model_with_activation_mp
+from tests.common_tests.helpers.generate_test_tpc import generate_tpc_with_activation_mp
 from tests.pytorch_tests.model_tests.base_pytorch_test import BasePytorchTest
 import model_compression_toolkit as mct
 from tests.pytorch_tests.tpc_pytorch import get_mp_activation_pytorch_tpc_dict
@@ -42,7 +45,7 @@ class MixedPrecisionActivationBaseTest(BasePytorchTest):
     def get_tpc(self):
         base_config, _, default_config = get_op_quantization_configs()
         return get_mp_activation_pytorch_tpc_dict(
-            tpc_model=generate_tp_model_with_activation_mp(
+            tpc_model=generate_tpc_with_activation_mp(
                 base_cfg=base_config,
                 default_config=default_config,
                 mp_bitwidth_candidates_list=[(8, 8), (8, 4), (8, 2),
@@ -54,7 +57,8 @@ class MixedPrecisionActivationBaseTest(BasePytorchTest):
     def get_core_configs(self):
         qc = mct.core.QuantizationConfig(mct.core.QuantizationErrorMethod.MSE, mct.core.QuantizationErrorMethod.MSE,
                                          relu_bound_to_power_of_2=False, weights_bias_correction=True,
-                                         input_scaling=False, activation_channel_equalization=False)
+                                         input_scaling=False, activation_channel_equalization=False,
+                                         custom_tpc_opset_to_layer={"Input": CustomOpsetLayers([DummyPlaceHolder])})
         mpc = mct.core.MixedPrecisionQuantizationConfig(num_of_images=1)
 
         return {"mixed_precision_activation_model": mct.core.CoreConfig(quantization_config=qc, mixed_precision_config=mpc)}
@@ -68,13 +72,14 @@ class MixedPrecisionActivationBaseTest(BasePytorchTest):
         raise NotImplementedError
 
     def verify_config(self, result_config, expected_config):
-        self.unit_test.assertTrue(all(result_config == expected_config))
+        self.unit_test.assertTrue(all(result_config == expected_config),
+                                  f"Configuration mismatch: expected {expected_config} but got {result_config}.")
 
 
 class MixedPrecisionActivationSearch8Bit(MixedPrecisionActivationBaseTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
-        self.expected_config = [1, 0, 0]
+        self.expected_config = [1, 1, 0]
 
     def get_resource_utilization(self):
         return ResourceUtilization(np.inf, 3000)
@@ -86,10 +91,10 @@ class MixedPrecisionActivationSearch8Bit(MixedPrecisionActivationBaseTest):
 class MixedPrecisionActivationSearch2Bit(MixedPrecisionActivationBaseTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
-        self.expected_config = [2, 8, 2, 2]
+        self.expected_config = [2, 8, 2, 1]
 
     def get_resource_utilization(self):
-        return ResourceUtilization(96, 768)
+        return ResourceUtilization(96, 1500)
 
     def compare(self, quantized_models, float_model, input_x=None, quantization_info=None):
         self.verify_config(quantization_info.mixed_precision_cfg, self.expected_config)
@@ -98,7 +103,7 @@ class MixedPrecisionActivationSearch2Bit(MixedPrecisionActivationBaseTest):
 class MixedPrecisionActivationSearch4Bit(MixedPrecisionActivationBaseTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
-        self.expected_config = [1, 4, 1, 1]
+        self.expected_config = [2, 5, 1, 1]
 
     def get_resource_utilization(self):
         return ResourceUtilization(192, 1536)
@@ -110,10 +115,10 @@ class MixedPrecisionActivationSearch4Bit(MixedPrecisionActivationBaseTest):
 class MixedPrecisionActivationSearch4BitFunctional(MixedPrecisionActivationBaseTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
-        self.expected_config = [1, 4, 4, 1]
+        self.expected_config = [1, 4, 5, 1]
 
     def get_resource_utilization(self):
-        return ResourceUtilization(81, 1536)
+        return ResourceUtilization(81, 3600)
 
     def create_feature_network(self, input_shape):
         return MixedPrecisionFunctionalNet(input_shape)
@@ -125,24 +130,28 @@ class MixedPrecisionActivationSearch4BitFunctional(MixedPrecisionActivationBaseT
 class MixedPrecisionActivationMultipleInputs(MixedPrecisionActivationBaseTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
-        self.expected_config = [0 for _ in range(8)] + [1] # expected config for this test.
+        self.expected_config = [0, 0, 0, 0, 2, 1, 1, 1, 1]  # expected config for this test.
         self.num_calibration_iter = 3
         self.val_batch_size = 2
 
     def get_resource_utilization(self):
         return ResourceUtilization(np.inf, 431)
 
+    def get_core_configs(self):
+        return {"mixed_precision_activation_model": CoreConfig(quantization_config=QuantizationConfig(
+            custom_tpc_opset_to_layer={'Concat': CustomOpsetLayers([torch.concat]),
+                                       "Input": CustomOpsetLayers([DummyPlaceHolder])}))}
+
     def get_tpc(self):
         base_config, _, default_config = get_op_quantization_configs()
         return get_mp_activation_pytorch_tpc_dict(
-            tpc_model=generate_tp_model_with_activation_mp(
+            tpc_model=generate_tpc_with_activation_mp(
                 base_cfg=base_config,
                 default_config=default_config,
                 mp_bitwidth_candidates_list=[(8, 8), (8, 4), (8, 2),
                                              (4, 8), (4, 4), (4, 2),
                                              (2, 8), (2, 4), (2, 2)],
-            custom_opsets=['Concat']),
-            custom_opsets_to_layer={'Concat': [torch.concat]},
+                custom_opsets=['Concat']),
             test_name='mixed_precision_activation_model',
             tpc_name='mixed_precision_activation_pytorch_test')
 
@@ -241,26 +250,29 @@ class MixedPrecisionDistanceFunctionsNet(torch.nn.Module):
 class MixedPrecisionDistanceFunctions(MixedPrecisionActivationBaseTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
-        self.expected_config = [1, 1, 1, 1, 1]
+        self.expected_config = [2, 1, 2, 1, 2]
 
     def get_resource_utilization(self):
-        return ResourceUtilization(np.inf, 3071)
+        return ResourceUtilization(activation_memory=3071)
+
+    def get_core_configs(self):
+        return {"mixed_precision_activation_model": CoreConfig(quantization_config=QuantizationConfig(
+            custom_tpc_opset_to_layer={'Softmax': CustomOpsetLayers([softmax, Softmax]),
+                                       "Input": CustomOpsetLayers([DummyPlaceHolder])}))}
 
     def get_tpc(self):
         base_config, _, default_config = get_op_quantization_configs()
-        custom_opsets_to_layer = {'Softmax': [softmax, Softmax]}
         mp_list = [(8, 8), (8, 4), (8, 2),
                    (4, 8), (4, 4), (4, 2),
                    (2, 8), (2, 4), (2, 2)]
 
-        tp_model = generate_tp_model_with_activation_mp(
+        tpc = generate_tpc_with_activation_mp(
             base_cfg=base_config,
             default_config=default_config,
             mp_bitwidth_candidates_list=mp_list,
             custom_opsets=['Softmax'])
 
-        return get_mp_activation_pytorch_tpc_dict(tpc_model=tp_model,
-                                                  custom_opsets_to_layer=custom_opsets_to_layer,
+        return get_mp_activation_pytorch_tpc_dict(tpc_model=tpc,
                                                   test_name='mixed_precision_activation_model',
                                                   tpc_name='mixed_precision_distance_fn_test')
 
@@ -276,6 +288,15 @@ class MixedPrecisionActivationConfigurableWeights(MixedPrecisionActivationBaseTe
         super().__init__(unit_test)
         self.expected_config = [1, 1]
 
+    def get_core_configs(self):
+        return {"mixed_precision_activation_model": CoreConfig(quantization_config=QuantizationConfig(
+            custom_tpc_opset_to_layer={"Weights": CustomOpsetLayers([torch.nn.Conv2d],
+                                                                    {KERNEL_ATTR: DefaultDict(
+                                                                        default_value=PYTORCH_KERNEL),
+                                                                     BIAS_ATTR: DefaultDict(default_value=BIAS)}),
+                                       "Activations": CustomOpsetLayers([torch.nn.ReLU, torch.add])}
+        ))}
+
     def get_tpc(self):
         cfg, mixed_precision_cfg_list, _ = get_op_quantization_configs()
 
@@ -290,45 +311,34 @@ class MixedPrecisionActivationConfigurableWeights(MixedPrecisionActivationBaseTe
             [c.clone_and_edit(enable_activation_quantization=False) for c in mixed_precision_cfg_list]
         cfg = mixed_precision_cfg_list[0]
 
-        act_mixed_cfg = QuantizationConfigOptions(
-            [act_eight_bit_cfg, act_four_bit_cfg, act_two_bit_cfg],
+        act_mixed_cfg = QuantizationConfigOptions(quantization_configurations=tuple(
+            [act_eight_bit_cfg, act_four_bit_cfg, act_two_bit_cfg]),
             base_config=act_eight_bit_cfg,
         )
 
-        weight_mixed_cfg = QuantizationConfigOptions(
-            mixed_precision_cfg_list,
+        weight_mixed_cfg = QuantizationConfigOptions(quantization_configurations=tuple(
+            mixed_precision_cfg_list),
             base_config=cfg,
         )
 
-        tp_model = TargetPlatformModel(QuantizationConfigOptions([cfg], cfg),
-                                       name="mp_activation_conf_weights_test")
+        tpc = TargetPlatformCapabilities(
+            default_qco=QuantizationConfigOptions(quantization_configurations=tuple([cfg]), base_config=cfg),
+            tpc_minor_version=None,
+            tpc_patch_version=None,
+            tpc_platform_type=None,
+            operator_set=tuple([
+                OperatorsSet(name="Activations", qc_options=act_mixed_cfg),
+                OperatorsSet(name="Weights", qc_options=weight_mixed_cfg)]),
+            add_metadata=False,
+            name="mp_activation_conf_weights_test")
 
-        with tp_model:
-            OperatorsSet("Activations", act_mixed_cfg)
-            OperatorsSet("Weights", weight_mixed_cfg)
-
-        torch_tpc = TargetPlatformCapabilities(tp_model, name="mp_activation_conf_weights_test")
-
-        with torch_tpc:
-            OperationsSetToLayers(
-                "Weights",
-                [torch.nn.Conv2d],
-                attr_mapping={KERNEL_ATTR: DefaultDict(default_value=PYTORCH_KERNEL),
-                              BIAS_ATTR: DefaultDict(default_value=BIAS)}
-            )
-
-            OperationsSetToLayers(
-                "Activations",
-                [torch.nn.ReLU, torch.add]
-            )
-
-        return {'mixed_precision_activation_model': torch_tpc}
+        return {'mixed_precision_activation_model': tpc}
 
     def create_feature_network(self, input_shape):
         return MixedPrecisionActivationTestNet(input_shape)
 
     def get_resource_utilization(self):
-        return ResourceUtilization(np.inf, 1536)
+        return ResourceUtilization(activation_memory=3000)
 
     def compare(self, quantized_models, float_model, input_x=None, quantization_info=None):
         self.verify_config(quantization_info.mixed_precision_cfg, self.expected_config)

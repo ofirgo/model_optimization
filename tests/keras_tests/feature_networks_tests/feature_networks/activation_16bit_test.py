@@ -19,7 +19,15 @@ import model_compression_toolkit as mct
 from model_compression_toolkit.constants import TENSORFLOW
 from model_compression_toolkit.core import MixedPrecisionQuantizationConfig
 from model_compression_toolkit.target_platform_capabilities.constants import IMX500_TP_MODEL
+from mct_quantizers.keras.activation_quantization_holder import KerasActivationQuantizationHolder
+from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import OperatorSetNames, \
+    QuantizationConfigOptions
+from model_compression_toolkit.target_platform_capabilities.schema.schema_functions import \
+    get_config_options_by_operators_set
+from tests.common_tests.helpers.generate_test_tpc import generate_custom_test_tpc
+from tests.common_tests.helpers.tpcs_for_tests.v4.tpc import get_tpc
 from tests.keras_tests.feature_networks_tests.base_keras_feature_test import BaseKerasFeatureNetworkTest
+from tests.keras_tests.utils import get_layers_from_model_by_type
 
 keras = tf.keras
 layers = keras.layers
@@ -31,11 +39,21 @@ get_op_set = lambda x, x_list: [op_set for op_set in x_list if op_set.name == x]
 class Activation16BitTest(BaseKerasFeatureNetworkTest):
 
     def get_tpc(self):
-        tpc = mct.get_target_platform_capabilities(TENSORFLOW, IMX500_TP_MODEL, 'v4')
-        # Force Mul base_config to 16bit only
-        mul_op_set = get_op_set('Mul', tpc.tp_model.operator_set)
-        mul_op_set.qc_options.base_config = [l for l in mul_op_set.qc_options.quantization_config_list if l.activation_n_bits == 16][0]
-        tpc.layer2qco[tf.multiply].base_config = mul_op_set.qc_options.base_config
+        tpc = get_tpc()
+        base_cfg_16 = [c for c in get_config_options_by_operators_set(tpc,
+                                                                      OperatorSetNames.MUL).quantization_configurations
+                       if c.activation_n_bits == 16][0].clone_and_edit()
+        qco_16 = QuantizationConfigOptions(base_config=base_cfg_16,
+                                           quantization_configurations=(tpc.default_qco.base_config,
+                                                                        base_cfg_16))
+        tpc = generate_custom_test_tpc(
+            name="custom_16_bit_tpc",
+            base_cfg=tpc.default_qco.base_config,
+            base_tpc=tpc,
+            operator_sets_dict={
+                OperatorSetNames.MUL: qco_16,
+            })
+
         return tpc
 
     def create_networks(self):
@@ -52,8 +70,8 @@ class Activation16BitTest(BaseKerasFeatureNetworkTest):
         return keras.Model(inputs=inputs, outputs=outputs)
 
     def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
-        mul1_act_quant = quantized_model.layers[3]
-        mul2_act_quant = quantized_model.layers[11]
+        act_quant_layers = get_layers_from_model_by_type(quantized_model, KerasActivationQuantizationHolder)
+        mul1_act_quant, mul2_act_quant = act_quant_layers[1], act_quant_layers[5]
         self.unit_test.assertTrue(mul1_act_quant.activation_holder_quantizer.num_bits == 16,
                                   "1st mul activation bits should be 16 bits because of following concat node.")
         self.unit_test.assertTrue(mul1_act_quant.activation_holder_quantizer.signed == True,
@@ -65,28 +83,37 @@ class Activation16BitTest(BaseKerasFeatureNetworkTest):
 class Activation16BitMixedPrecisionTest(Activation16BitTest):
 
     def get_tpc(self):
-        tpc = mct.get_target_platform_capabilities(TENSORFLOW, IMX500_TP_MODEL, 'v3')
-        mul_op_set = get_op_set('Mul', tpc.tp_model.operator_set)
-        mul_op_set.qc_options.base_config = [l for l in mul_op_set.qc_options.quantization_config_list if l.activation_n_bits == 16][0]
-        tpc.layer2qco[tf.multiply].base_config = mul_op_set.qc_options.base_config
-        mul_op_set.qc_options.quantization_config_list.extend(
-            [mul_op_set.qc_options.base_config.clone_and_edit(activation_n_bits=4),
-             mul_op_set.qc_options.base_config.clone_and_edit(activation_n_bits=2)])
-        tpc.layer2qco[tf.multiply].quantization_config_list.extend([
-            tpc.layer2qco[tf.multiply].base_config.clone_and_edit(activation_n_bits=4),
-            tpc.layer2qco[tf.multiply].base_config.clone_and_edit(activation_n_bits=2)])
+        tpc = get_tpc()
+
+        mul_qco = get_config_options_by_operators_set(tpc, OperatorSetNames.MUL)
+        base_cfg_16 = [l for l in mul_qco.quantization_configurations if l.activation_n_bits == 16][0]
+        quantization_configurations = list(mul_qco.quantization_configurations)
+        quantization_configurations.extend([
+            base_cfg_16.clone_and_edit(activation_n_bits=4),
+            base_cfg_16.clone_and_edit(activation_n_bits=2)])
+
+        qco_16 = QuantizationConfigOptions(base_config=base_cfg_16,
+                                           quantization_configurations=quantization_configurations)
+
+        tpc = generate_custom_test_tpc(
+            name="custom_16_bit_tpc",
+            base_cfg=tpc.default_qco.base_config,
+            base_tpc=tpc,
+            operator_sets_dict={
+                OperatorSetNames.MUL: qco_16,
+            })
 
         return tpc
 
     def get_resource_utilization(self):
-        return mct.core.ResourceUtilization(activation_memory=200)
+        return mct.core.ResourceUtilization(activation_memory=5000)
 
     def get_mixed_precision_config(self):
         return MixedPrecisionQuantizationConfig()
 
     def create_networks(self):
         inputs = layers.Input(shape=self.get_input_shapes()[0][1:])
-        x = tf.multiply(inputs, inputs)
+        x = tf.multiply(inputs, inputs)[:, :8, :8, :]
         x = tf.add(x, np.ones((3,), dtype=np.float32))
         x1 = tf.subtract(x, np.ones((3,), dtype=np.float32))
         x = tf.multiply(x, x1)
@@ -95,8 +122,8 @@ class Activation16BitMixedPrecisionTest(Activation16BitTest):
         return keras.Model(inputs=inputs, outputs=outputs)
 
     def compare(self, quantized_model, float_model, input_x=None, quantization_info=None):
-        mul1_act_quant = quantized_model.layers[3]
-        mul2_act_quant = quantized_model.layers[9]
+        act_quant_layers = get_layers_from_model_by_type(quantized_model, KerasActivationQuantizationHolder)
+        mul1_act_quant, mul2_act_quant = act_quant_layers[1], act_quant_layers[4]
         self.unit_test.assertTrue(mul1_act_quant.activation_holder_quantizer.num_bits == 8,
                                   "1st mul activation bits should be 8 bits because of RU.")
         self.unit_test.assertTrue(mul1_act_quant.activation_holder_quantizer.signed == False,

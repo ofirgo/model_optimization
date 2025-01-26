@@ -19,13 +19,16 @@ from keras import Input, Model
 from keras.layers import Conv2D, Conv2DTranspose
 
 import model_compression_toolkit as mct
+from mct_quantizers import QuantizationMethod
 from model_compression_toolkit.core import QuantizationConfig, QuantizationErrorMethod
 from model_compression_toolkit.constants import THRESHOLD
 from model_compression_toolkit.core.keras.constants import KERNEL
+from model_compression_toolkit.target_platform_capabilities.targetplatform2framework.attach2keras import \
+    AttachTpcToKeras
 from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.latest import generate_keras_tpc
 from model_compression_toolkit.core.keras.default_framework_info import DEFAULT_KERAS_INFO
 from model_compression_toolkit.core.keras.keras_implementation import KerasImplementation
-from tests.common_tests.helpers.generate_test_tp_model import generate_test_tp_model
+from tests.common_tests.helpers.generate_test_tpc import generate_test_tpc
 from tests.common_tests.helpers.prep_graph_for_func_test import prepare_graph_with_quantization_parameters
 
 
@@ -55,10 +58,10 @@ def representative_dataset():
 
 
 def get_tpc(per_channel):
-    tp = generate_test_tp_model(edit_params_dict={
-        'weights_quantization_method': mct.target_platform.QuantizationMethod.SYMMETRIC,
+    tp = generate_test_tpc(edit_params_dict={
+        'weights_quantization_method': QuantizationMethod.SYMMETRIC,
         'weights_per_channel_threshold': per_channel})
-    tpc = generate_keras_tpc(name="symmetric_threshold_selection_test", tp_model=tp)
+    tpc = generate_keras_tpc(name="symmetric_threshold_selection_test", tpc=tp)
 
     return tpc
 
@@ -102,7 +105,8 @@ class TestSymmetricThresholdSelectionWeights(unittest.TestCase):
         graph = prepare_graph_with_quantization_parameters(in_model, KerasImplementation(), DEFAULT_KERAS_INFO,
                                                            representative_dataset,
                                                            lambda name, _tp: get_tpc(per_channel),
-                                                           qc=qc, input_shape=(1, 16, 16, 4))
+                                                           qc=qc, input_shape=(1, 16, 16, 4),
+                                                           attach2fw=AttachTpcToKeras(), )
 
         nodes_list = list(graph.nodes)
         conv1_threshold = nodes_list[0].candidates_quantization_cfg[0].weights_quantization_cfg.get_attr_config(KERNEL).weights_quantization_params[THRESHOLD]

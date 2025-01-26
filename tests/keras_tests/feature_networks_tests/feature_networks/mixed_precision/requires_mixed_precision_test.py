@@ -14,6 +14,18 @@
 # ==============================================================================
 
 import numpy as np
+import tensorflow as tf
+
+from packaging import version
+
+from model_compression_toolkit.core.common.quantization.quantization_config import CustomOpsetLayers
+from model_compression_toolkit.target_platform_capabilities.targetplatform2framework.attach2keras import \
+    AttachTpcToKeras
+
+if version.parse(tf.__version__) >= version.parse("2.13"):
+    from keras.src.engine.input_layer import InputLayer
+else:
+    from keras.engine.input_layer import InputLayer
 
 from model_compression_toolkit.core import ResourceUtilization
 from model_compression_toolkit.core.common.mixed_precision.resource_utilization_tools.resource_utilization_data import \
@@ -26,7 +38,7 @@ from tests.keras_tests.feature_networks_tests.feature_networks.mixed_precision_t
 from tests.keras_tests.feature_networks_tests.feature_networks.weights_mixed_precision_tests import \
     MixedPrecisionBaseTest
 from tests.keras_tests.tpc_keras import get_tpc_with_activation_mp_keras, get_weights_only_mp_tpc_keras
-from tests.common_tests.helpers.generate_test_tp_model import generate_test_op_qc, generate_test_attr_configs
+from tests.common_tests.helpers.generate_test_tpc import generate_test_op_qc, generate_test_attr_configs
 import model_compression_toolkit as mct
 
 
@@ -54,13 +66,14 @@ class RequiresMixedPrecision(MixedPrecisionBaseTest):
                                                 name="")
 
     def get_max_resources_for_model(self, model):
-        return compute_resource_utilization_data(in_model=model,
-                                                 representative_data_gen=self.representative_data_gen(),
-                                                 core_config=self.get_core_config(),
-                                                 tpc=self.get_tpc(),
-                                                 fw_info=DEFAULT_KERAS_INFO,
-                                                 fw_impl=KerasImplementation(),
-                                                 transformed_graph=None,
+        tpc = self.get_tpc()
+        cc = self.get_core_config()
+        attach2keras = AttachTpcToKeras()
+        fqc = attach2keras.attach(tpc, cc.quantization_config.custom_tpc_opset_to_layer)
+
+        return compute_resource_utilization_data(in_model=model, representative_data_gen=self.representative_data_gen(),
+                                                 core_config=cc, fqc=fqc, fw_info=DEFAULT_KERAS_INFO,
+                                                 fw_impl=KerasImplementation(), transformed_graph=None,
                                                  mixed_precision_enable=False)
 
     def get_quantization_config(self):
@@ -69,7 +82,8 @@ class RequiresMixedPrecision(MixedPrecisionBaseTest):
                                            relu_bound_to_power_of_2=True,
                                            weights_bias_correction=True,
                                            input_scaling=False,
-                                           activation_channel_equalization=True)
+                                           activation_channel_equalization=True,
+                                           custom_tpc_opset_to_layer={"Input": CustomOpsetLayers([InputLayer])})
 
     def get_resource_utilization(self):
         ru_data = self.get_max_resources_for_model(self.create_networks())

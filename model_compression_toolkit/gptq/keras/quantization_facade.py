@@ -19,9 +19,13 @@ from packaging import version
 
 from model_compression_toolkit.core.common.visualization.tensorboard_writer import init_tensorboard_writer
 from model_compression_toolkit.gptq.common.gptq_constants import REG_DEFAULT, LR_DEFAULT, LR_REST_DEFAULT, \
-    LR_BIAS_DEFAULT, GPTQ_MOMENTUM
+    LR_BIAS_DEFAULT, GPTQ_MOMENTUM, REG_DEFAULT_SLA
 from model_compression_toolkit.logger import Logger
 from model_compression_toolkit.constants import TENSORFLOW, ACT_HESSIAN_DEFAULT_BATCH_SIZE, GPTQ_HESSIAN_NUM_SAMPLES
+from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import TargetPlatformCapabilities
+from model_compression_toolkit.target_platform_capabilities.targetplatform2framework.attach2keras import \
+    AttachTpcToKeras
+from model_compression_toolkit.target_platform_capabilities.tpc_io_handler import load_target_platform_capabilities
 from model_compression_toolkit.verify_packages import FOUND_TF
 from model_compression_toolkit.core.common.user_info import UserInformation
 from model_compression_toolkit.gptq.common.gptq_config import GradientPTQConfig, GPTQHessianScoresConfig, \
@@ -32,7 +36,6 @@ from model_compression_toolkit.core import CoreConfig
 from model_compression_toolkit.core.runner import core_runner
 from model_compression_toolkit.gptq.runner import gptq_runner
 from model_compression_toolkit.core.analyzer import analyzer_model_quantization
-from model_compression_toolkit.target_platform_capabilities.target_platform.targetplatform2framework import TargetPlatformCapabilities
 from model_compression_toolkit.metadata import create_model_metadata
 
 
@@ -42,7 +45,7 @@ if FOUND_TF:
     from model_compression_toolkit.gptq.keras.gptq_keras_implementation import GPTQKerasImplemantation
     from model_compression_toolkit.core.keras.keras_model_validation import KerasModelValidation
     from tensorflow.keras.models import Model
-    from model_compression_toolkit.gptq.keras.gptq_loss import GPTQMultipleTensorsLoss
+    from model_compression_toolkit.gptq.keras.gptq_loss import GPTQMultipleTensorsLoss, sample_layer_attention_loss
     from model_compression_toolkit.target_platform_capabilities.constants import DEFAULT_TP_MODEL
     from model_compression_toolkit.exporter.model_wrapper import get_exportable_keras_model
     from model_compression_toolkit import get_target_platform_capabilities
@@ -61,12 +64,13 @@ if FOUND_TF:
     def get_keras_gptq_config(n_epochs: int,
                               optimizer: OptimizerV2 = None,
                               optimizer_rest: OptimizerV2 = None,
-                              loss: Callable = GPTQMultipleTensorsLoss(),
+                              loss: Callable = None,
                               log_function: Callable = None,
                               use_hessian_based_weights: bool = True,
-                              regularization_factor: float = REG_DEFAULT,
+                              regularization_factor: float = None,
                               hessian_batch_size: int = ACT_HESSIAN_DEFAULT_BATCH_SIZE,
-                              gradual_activation_quantization: Union[bool, GradualActivationQuantizationConfig] = False) -> GradientPTQConfig:
+                              use_hessian_sample_attention: bool = True,
+                              gradual_activation_quantization: Union[bool, GradualActivationQuantizationConfig] = True) -> GradientPTQConfig:
         """
         Create a GradientPTQConfig instance for Keras models.
 
@@ -79,6 +83,7 @@ if FOUND_TF:
             use_hessian_based_weights (bool): Whether to use Hessian-based weights for weighted average loss.
             regularization_factor (float): A floating point number that defines the regularization factor.
             hessian_batch_size (int): Batch size for Hessian computation in Hessian-based weights GPTQ.
+            use_hessian_sample_attention (bool): whether to use Sample-Layer Attention score for weighted loss.
             gradual_activation_quantization (bool, GradualActivationQuantizationConfig): If False, GradualActivationQuantization is disabled. If True, GradualActivationQuantization is enabled with the default settings. GradualActivationQuantizationConfig object can be passed to use non-default settings.
 
         returns:
@@ -105,10 +110,28 @@ if FOUND_TF:
         """
         optimizer = optimizer or tf.keras.optimizers.Adam(learning_rate=LR_DEFAULT)
         optimizer_rest = optimizer_rest or tf.keras.optimizers.Adam(learning_rate=LR_REST_DEFAULT)
+        bias_optimizer = tf.keras.optimizers.SGD(learning_rate=LR_BIAS_DEFAULT, momentum=GPTQ_MOMENTUM)
 
-        bias_optimizer = tf.keras.optimizers.SGD(learning_rate=LR_BIAS_DEFAULT,
-                                                 momentum=GPTQ_MOMENTUM)
+        if regularization_factor is None:
+            regularization_factor = REG_DEFAULT_SLA if use_hessian_sample_attention else REG_DEFAULT
 
+        hessian_weights_config = None
+        if use_hessian_sample_attention:
+            if not use_hessian_based_weights:    # pragma: no cover
+                raise ValueError('use_hessian_based_weights must be set to True in order to use Sample Layer Attention.')
+
+            hessian_weights_config = GPTQHessianScoresConfig(per_sample=True,
+                                                             hessians_num_samples=None,
+                                                             hessian_batch_size=hessian_batch_size)
+            loss = loss or sample_layer_attention_loss
+        elif use_hessian_based_weights:
+            hessian_weights_config = GPTQHessianScoresConfig(per_sample=False,
+                                                             hessians_num_samples=GPTQ_HESSIAN_NUM_SAMPLES,
+                                                             hessian_batch_size=hessian_batch_size)
+        
+        # If a loss was not passed (and was not initialized due to use_hessian_sample_attention), use the default loss
+        loss = loss or GPTQMultipleTensorsLoss()
+        
         if isinstance(gradual_activation_quantization, bool):
             gradual_quant_config = GradualActivationQuantizationConfig() if gradual_activation_quantization else None
         elif isinstance(gradual_activation_quantization, GradualActivationQuantizationConfig):
@@ -117,11 +140,6 @@ if FOUND_TF:
             raise TypeError(f'gradual_activation_quantization argument should be bool or '
                             f'GradualActivationQuantizationConfig, received {type(gradual_activation_quantization)}')
 
-        hessian_weights_config = None
-        if use_hessian_based_weights:
-            hessian_weights_config = GPTQHessianScoresConfig(per_sample=False,
-                                                             hessians_num_samples=GPTQ_HESSIAN_NUM_SAMPLES,
-                                                             hessian_batch_size=hessian_batch_size)
         return GradientPTQConfig(n_epochs=n_epochs,
                                  optimizer=optimizer,
                                  optimizer_rest=optimizer_rest,
@@ -139,7 +157,8 @@ if FOUND_TF:
                                                   gptq_representative_data_gen: Callable = None,
                                                   target_resource_utilization: ResourceUtilization = None,
                                                   core_config: CoreConfig = CoreConfig(),
-                                                  target_platform_capabilities: TargetPlatformCapabilities = DEFAULT_KERAS_TPC) -> Tuple[Model, UserInformation]:
+                                                  target_platform_capabilities: Union[TargetPlatformCapabilities, str]
+                                                  = DEFAULT_KERAS_TPC) -> Tuple[Model, UserInformation]:
         """
         Quantize a trained Keras model using post-training quantization. The model is quantized using a
         symmetric constraint quantization thresholds (power of two).
@@ -163,7 +182,7 @@ if FOUND_TF:
             gptq_representative_data_gen (Callable): Dataset used for GPTQ training. If None defaults to representative_data_gen
             target_resource_utilization (ResourceUtilization): ResourceUtilization object to limit the search of the mixed-precision configuration as desired.
             core_config (CoreConfig): Configuration object containing parameters of how the model should be quantized, including mixed precision parameters.
-            target_platform_capabilities (TargetPlatformCapabilities): TargetPlatformCapabilities to optimize the Keras model according to.
+            target_platform_capabilities (Union[TargetPlatformCapabilities, str]): TargetPlatformCapabilities to optimize the Keras model according to.
 
         Returns:
 
@@ -224,12 +243,19 @@ if FOUND_TF:
 
         fw_impl = GPTQKerasImplemantation()
 
+        target_platform_capabilities = load_target_platform_capabilities(target_platform_capabilities)
+        # Attach tpc model to framework
+        attach2keras = AttachTpcToKeras()
+        framework_platform_capabilities = attach2keras.attach(
+            target_platform_capabilities,
+            custom_opset2layer=core_config.quantization_config.custom_tpc_opset_to_layer)
+
         tg, bit_widths_config, hessian_info_service, scheduling_info = core_runner(in_model=in_model,
                                                                                    representative_data_gen=representative_data_gen,
                                                                                    core_config=core_config,
                                                                                    fw_info=DEFAULT_KERAS_INFO,
                                                                                    fw_impl=fw_impl,
-                                                                                   tpc=target_platform_capabilities,
+                                                                                   fqc=framework_platform_capabilities,
                                                                                    target_resource_utilization=target_resource_utilization,
                                                                                    tb_w=tb_w,
                                                                                    running_gptq=True)
@@ -257,9 +283,9 @@ if FOUND_TF:
                                         DEFAULT_KERAS_INFO)
 
         exportable_model, user_info = get_exportable_keras_model(tg_gptq)
-        if target_platform_capabilities.tp_model.add_metadata:
+        if framework_platform_capabilities.tpc.add_metadata:
             exportable_model = add_metadata(exportable_model,
-                                            create_model_metadata(tpc=target_platform_capabilities,
+                                            create_model_metadata(fqc=framework_platform_capabilities,
                                                                   scheduling_info=scheduling_info))
         return exportable_model, user_info
 

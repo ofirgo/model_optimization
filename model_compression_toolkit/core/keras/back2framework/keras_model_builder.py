@@ -49,38 +49,6 @@ FQ_NODE_OP_V2_4 = 'quantization.fake_quant_with_min_max_vars'
 BATCH_INPUT_SHAPE = 'batch_input_shape'
 
 
-def get_node_name_from_layer(layer: Layer) -> str:
-    """
-    Get a node's name from the layer it was built from. For TensorFlowOpLayer
-    we remove the prefix "tf_op_layer".
-
-    Args:
-        layer: Keras Layer to get its corresponding node's name.
-
-    Returns:
-        Name of the node that was built from the passed layer.
-    """
-
-    name = layer.name
-    if isinstance(layer, TensorFlowOpLayer):  # remove TF op layer prefix
-        name = '_'.join(name.split('_')[3:])
-    return name
-
-
-def is_layer_fake_quant(layer: Layer) -> bool:
-    """
-    Check whether a Keras layer is a fake quantization layer or not.
-    Args:
-        layer: Layer to check if it's a fake quantization layer or not.
-
-    Returns:
-        Whether a Keras layer is a fake quantization layer or not.
-    """
-    # in tf2.3 fake quant node is implemented as TensorFlowOpLayer, while in tf2.4 as TFOpLambda
-    return (isinstance(layer, TensorFlowOpLayer) and layer.node_def.op == FQ_NODE_OP_V2_3) or (
-            isinstance(layer, TFOpLambda) and layer.symbol == FQ_NODE_OP_V2_4)
-
-
 class KerasModelBuilder(BaseModelBuilder):
     """
     Builder for Keras models.
@@ -291,7 +259,7 @@ class KerasModelBuilder(BaseModelBuilder):
                                     arg = n.weights.get(pos)
                                     if arg is None:
                                         if len(input_tensors) == 0:
-                                            Logger.critical(f"Couldn't find a weight or input tensor matching operator's "
+                                            Logger.critical(f"Couldn't find a weight or input tensor matching operator's "  # pragma: no cover
                                                             f"argument name '{k}' in location {pos} for node {n.name}.")
                                         arg = input_tensors.pop(0)
                                     op_call_kwargs.update({k: arg})
@@ -302,7 +270,11 @@ class KerasModelBuilder(BaseModelBuilder):
             # Build a functional node using its args
             if isinstance(n, FunctionalNode):
                 if n.inputs_as_list:  # If the first argument should be a list of tensors:
-                    out_tensors_of_n_float = op_func(input_tensors, *n.op_call_args, **op_call_kwargs)
+                    if isinstance(op_func, KerasQuantizationWrapper):
+                        # in wrapped nodes, the op args & kwargs are already in the KerasQuantizationWrapper.
+                        out_tensors_of_n_float = op_func(input_tensors)
+                    else:
+                        out_tensors_of_n_float = op_func(input_tensors, *n.op_call_args, **op_call_kwargs)
                 else:  # If the input tensors should not be a list but iterated:
                     out_tensors_of_n_float = op_func(*input_tensors, *n.op_call_args, **op_call_kwargs)
             else:

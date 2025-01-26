@@ -16,21 +16,23 @@ import torch
 import numpy as np
 from torch.nn import Conv2d
 
+import model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema as schema
 from model_compression_toolkit.defaultdict import DefaultDict
-from model_compression_toolkit.core import ResourceUtilization
+from model_compression_toolkit.core import ResourceUtilization, CoreConfig, QuantizationConfig
 from model_compression_toolkit.core.common.mixed_precision.distance_weighting import MpDistanceWeighting
 from model_compression_toolkit.core.common.user_info import UserInformation
 from model_compression_toolkit.core.pytorch.constants import BIAS
 from model_compression_toolkit.target_platform_capabilities.constants import KERNEL_ATTR, PYTORCH_KERNEL, BIAS_ATTR
-from model_compression_toolkit.target_platform_capabilities.target_platform import QuantizationConfigOptions, \
-    TargetPlatformModel, OperatorsSet, TargetPlatformCapabilities, OperationsSetToLayers
-from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.latest import get_tp_model, get_op_quantization_configs
-from tests.common_tests.helpers.generate_test_tp_model import generate_mixed_precision_test_tp_model
+from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import TargetPlatformCapabilities, OperatorsSet, \
+    QuantizationConfigOptions
+from model_compression_toolkit.core.common.quantization.quantization_config import CustomOpsetLayers
+from model_compression_toolkit.target_platform_capabilities.tpc_models.imx500_tpc.latest import get_tpc, \
+    get_op_quantization_configs
+from tests.common_tests.helpers.generate_test_tpc import generate_mixed_precision_test_tpc
 from tests.pytorch_tests.tpc_pytorch import get_pytorch_test_tpc_dict
 from tests.pytorch_tests.model_tests.base_pytorch_test import BasePytorchTest
 import model_compression_toolkit as mct
 
-tp = mct.target_platform
 
 """
 This test checks the Mixed Precision feature.
@@ -42,7 +44,7 @@ class MixedPrecisionBaseTest(BasePytorchTest):
         super().__init__(unit_test, num_calibration_iter=num_calibration_iter)
 
     def get_tpc(self):
-        return get_pytorch_test_tpc_dict(tp_model=get_tp_model(),
+        return get_pytorch_test_tpc_dict(tpc=get_tpc(),
                                          test_name='mixed_precision_model',
                                          ftp_name='mixed_precision_pytorch_test')
 
@@ -129,6 +131,16 @@ class MixedPrecisionSearchPartWeightsLayers(MixedPrecisionBaseTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
 
+    def get_core_configs(self):
+        return {"mixed_precision_model": CoreConfig(quantization_config=QuantizationConfig(
+            custom_tpc_opset_to_layer={"Weights_mp": CustomOpsetLayers([torch.nn.Conv2d],
+                                                      {KERNEL_ATTR: DefaultDict(default_value=PYTORCH_KERNEL),
+                                                       BIAS_ATTR: DefaultDict(default_value=BIAS)}),
+                                       "Weights_fixed": CustomOpsetLayers([torch.nn.Linear],
+                                                         {KERNEL_ATTR: DefaultDict(default_value=PYTORCH_KERNEL),
+                                                          BIAS_ATTR: DefaultDict(default_value=BIAS)})}
+        ))}
+
     def get_tpc(self):
         # Building a TPC that gives Conv layers mixed precision candidates and Dense layers a fixed candidate.
         # Both layers that have weights to quantized, so we want to verify that finalizing the model is successful.
@@ -137,39 +149,26 @@ class MixedPrecisionSearchPartWeightsLayers(MixedPrecisionBaseTest):
 
         two_bit_cfg = mixed_precision_cfg_list[2]
 
-        weight_mixed_cfg = tp.QuantizationConfigOptions(
-            mixed_precision_cfg_list,
+        weight_mixed_cfg = schema.QuantizationConfigOptions(quantization_configurations=tuple(
+            mixed_precision_cfg_list),
             base_config=cfg,
         )
 
-        weight_fixed_cfg = tp.QuantizationConfigOptions(
-            [two_bit_cfg],
+        weight_fixed_cfg = schema.QuantizationConfigOptions(quantization_configurations=tuple(
+            [two_bit_cfg]),
             base_config=two_bit_cfg,
         )
 
-        tp_model = tp.TargetPlatformModel(weight_fixed_cfg, name="mp_part_weights_layers_test")
-        with tp_model:
-            tp.OperatorsSet("Weights_mp", weight_mixed_cfg)
-            tp.OperatorsSet("Weights_fixed", weight_fixed_cfg)
+        tpc = schema.TargetPlatformCapabilities(
+            default_qco=weight_fixed_cfg,
+            tpc_minor_version=None,
+            tpc_patch_version=None,
+            tpc_platform_type=None,
+            operator_set=tuple([schema.OperatorsSet(name="Weights_mp", qc_options=weight_mixed_cfg),
+                          schema.OperatorsSet(name="Weights_fixed", qc_options=weight_fixed_cfg)]),
+            name="mp_part_weights_layers_test")
 
-        pytorch_tpc = tp.TargetPlatformCapabilities(tp_model, name="mp_part_weights_layers_test")
-
-        with pytorch_tpc:
-            tp.OperationsSetToLayers(
-                "Weights_fixed",
-                [torch.nn.Linear],
-                attr_mapping={KERNEL_ATTR: DefaultDict(default_value=PYTORCH_KERNEL),
-                              BIAS_ATTR: DefaultDict(default_value=BIAS)}
-            )
-
-            tp.OperationsSetToLayers(
-                "Weights_mp",
-                [torch.nn.Conv2d],
-                attr_mapping={KERNEL_ATTR: DefaultDict(default_value=PYTORCH_KERNEL),
-                              BIAS_ATTR: DefaultDict(default_value=BIAS)}
-            )
-
-        return {'mixed_precision_model': pytorch_tpc}
+        return {'mixed_precision_model': tpc}
 
     def create_feature_network(self, input_shape):
         class ConvLinearModel(torch.nn.Module):
@@ -203,6 +202,7 @@ class MixedPrecisionSearchPartWeightsLayers(MixedPrecisionBaseTest):
             self.unit_test.assertTrue(
                 np.unique(q_weights[i, :]).flatten().shape[0] <= 4)
 
+
 class MixedPrecisionSearch2Bit(MixedPrecisionBaseTest):
     def __init__(self, unit_test):
         super().__init__(unit_test)
@@ -232,7 +232,7 @@ class MixedPrecisionActivationDisabledTest(MixedPrecisionBaseTest):
     def get_fw_hw_model(self):
         base_config, _, default_config = get_op_quantization_configs()
         return get_pytorch_test_tpc_dict(
-            tp_model=generate_mixed_precision_test_tp_model(
+            tpc=generate_mixed_precision_test_tpc(
                 base_cfg=base_config.clone_and_edit(enable_activation_quantization=False),
                 default_config=default_config,
                 mp_bitwidth_candidates_list=[(8, 8), (4, 8), (2, 8)]),
@@ -284,6 +284,14 @@ class MixedPrecisionWeightsConfigurableActivations(MixedPrecisionBaseTest):
         super().__init__(unit_test)
         self.expected_config = [1]
 
+    def get_core_configs(self):
+        return {"mixed_precision_model": CoreConfig(quantization_config=QuantizationConfig(
+            custom_tpc_opset_to_layer={"Weights": CustomOpsetLayers([torch.nn.Conv2d],
+                                                   {KERNEL_ATTR: DefaultDict(default_value=PYTORCH_KERNEL),
+                                                    BIAS_ATTR: DefaultDict(default_value=BIAS)}),
+                                       "Activations": CustomOpsetLayers([torch.nn.ReLU, torch.add])}
+        ))}
+
     def get_tpc(self):
         cfg, mixed_precision_cfg_list, _ = get_op_quantization_configs()
 
@@ -298,39 +306,27 @@ class MixedPrecisionWeightsConfigurableActivations(MixedPrecisionBaseTest):
             [c.clone_and_edit(enable_activation_quantization=False) for c in mixed_precision_cfg_list]
         cfg = mixed_precision_cfg_list[0]
 
-        act_mixed_cfg = QuantizationConfigOptions(
-            [act_eight_bit_cfg, act_four_bit_cfg, act_two_bit_cfg],
+        act_mixed_cfg = QuantizationConfigOptions(quantization_configurations=tuple(
+            [act_eight_bit_cfg, act_four_bit_cfg, act_two_bit_cfg]),
             base_config=act_eight_bit_cfg,
         )
 
-        weight_mixed_cfg = QuantizationConfigOptions(
-            mixed_precision_cfg_list,
+        weight_mixed_cfg = QuantizationConfigOptions(quantization_configurations=tuple(
+            mixed_precision_cfg_list),
             base_config=cfg,
         )
 
-        tp_model = TargetPlatformModel(QuantizationConfigOptions([cfg], cfg),
-                                       name="mp_weights_conf_act_test")
+        tpc = TargetPlatformCapabilities(
+            default_qco=QuantizationConfigOptions(quantization_configurations=tuple([cfg]), base_config=cfg),
+            tpc_minor_version=None,
+            tpc_patch_version=None,
+            tpc_platform_type=None,
+            operator_set=tuple([
+                OperatorsSet(name="Activations", qc_options=act_mixed_cfg),
+                OperatorsSet(name="Weights", qc_options=weight_mixed_cfg)]),
+            name="mp_weights_conf_act_test")
 
-        with tp_model:
-            OperatorsSet("Activations", act_mixed_cfg)
-            OperatorsSet("Weights", weight_mixed_cfg)
-
-        torch_tpc = TargetPlatformCapabilities(tp_model, name="mp_weights_conf_act_test")
-
-        with torch_tpc:
-            OperationsSetToLayers(
-                "Weights",
-                [torch.nn.Conv2d],
-                attr_mapping={KERNEL_ATTR: DefaultDict(default_value=PYTORCH_KERNEL),
-                              BIAS_ATTR: DefaultDict(default_value=BIAS)}
-            )
-
-            OperationsSetToLayers(
-                "Activations",
-                [torch.nn.ReLU, torch.add]
-            )
-
-        return {'mixed_precision_model': torch_tpc}
+        return {'mixed_precision_model': tpc}
 
     def create_feature_network(self, input_shape):
         return MixedPrecisionWeightsTestNet(input_shape)
