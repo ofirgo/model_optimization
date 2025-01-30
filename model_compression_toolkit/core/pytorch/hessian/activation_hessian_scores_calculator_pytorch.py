@@ -148,7 +148,7 @@ class ActivationHessianScoresCalculatorPytorch(HessianScoresCalculatorPytorch):
                     if max_delta < HESSIAN_COMP_TOLERANCE:
                         break
             prev_mean_results = torch.mean(torch.stack(ipts_hessian_approx_scores), dim=1)
-
+            print(ipts_hessian_approx_scores)
         # add extra dimension to preserve previous behaviour
         ipts_hessian_approx_scores = [torch.unsqueeze(t, -1) for t in ipts_hessian_approx_scores]
         return ipts_hessian_approx_scores
