@@ -51,7 +51,7 @@ class BasicModel(torch.nn.Module):
 class TestActivationHessianScoresCalculator:
 
     def test_per_tensor_hessian_computation(self, x):
-
+        print(test_per_tensor_hessian_computation)
         def representative_data_gen():
             yield [x]
 
