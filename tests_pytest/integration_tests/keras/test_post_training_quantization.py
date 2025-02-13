@@ -36,11 +36,11 @@ INPUT_SHAPE = (224, 224, 3)
 def rep_data_gen():
     np.random.seed(42)
 
-    def reppresentative_dataset():
+    def representative_dataset():
         for _ in range(2):
             yield [np.random.randn(2, *INPUT_SHAPE)]
 
-    return reppresentative_dataset
+    return representative_dataset
 
 
 def model_basic():
@@ -68,12 +68,12 @@ def model_residual():
     return keras.Model(inputs=inputs, outputs=x)
 
 
-def set_tpc(weights_quantizer, per_channel):
+def set_tpc(weights_quantization_method, per_channel):
     # TODO: currently, running E2E test with IMX500 V4 TPC from tests package
     #  we need to select a default TPC for tests, which is the one we want to verify e2e for.
 
     att_cfg_noquant = AttributeQuantizationConfig()
-    att_cfg_quant = AttributeQuantizationConfig(weights_quantization_method=weights_quantizer,
+    att_cfg_quant = AttributeQuantizationConfig(weights_quantization_method=weights_quantization_method,
                                                 weights_n_bits=8,
                                                 weights_per_channel_threshold=per_channel,
                                                 enable_weights_quantization=True)
@@ -104,43 +104,11 @@ def tpc_factory():
     return _tpc_factory
 
 
-def _verify_weights_quantizer_params(quant_method, weights_quantizer, params_shape, per_channel):
-    assert weights_quantizer.per_channel == per_channel
-    assert weights_quantizer.quantization_method[0] == quant_method
-
-    if quant_method == QuantizationMethod.POWER_OF_TWO:
-        assert len(weights_quantizer.threshold) == params_shape
-        for t in weights_quantizer.threshold:
-            assert np.log2(np.abs(t)).astype(int) == np.log2(np.abs(t))
-    elif quant_method == QuantizationMethod.SYMMETRIC:
-        assert len(weights_quantizer.threshold) == params_shape
-    elif quant_method == QuantizationMethod.UNIFORM:
-        assert len(weights_quantizer.min_range) == params_shape
-        assert len(weights_quantizer.max_range) == params_shape
-
-
 class TestPostTrainingQuantizationApi:
     # TODO: add tests for:
     #   1) activation only, W&A, LUT quantizer (separate)
     #   2) extend to also test with different settings features (bc, snc, etc.)
     #   3) advanced models and operators
-
-
-    def _verify_quantized_model_structure(self, model, q_model, quantization_info):
-        assert q_model is not None and isinstance(q_model, keras.Model)
-        assert quantization_info is not None and isinstance(quantization_info, UserInformation)
-
-        # Assert quantized model structure
-        assert len([l for l in q_model.layers if isinstance(l, layers.BatchNormalization)]) == 0, \
-            "Expects BN folding in quantized model."
-        assert len([l for l in q_model.layers if isinstance(l, MetadataLayer)]) == 1, \
-            "Expects quantized model to have a metadata stored in a dedicated layer."
-        original_conv_layers = [l for l in model.layers if
-                                isinstance(l, (layers.Conv2D, layers.DepthwiseConv2D, layers.Dense))]
-        quantized_conv_layers = [l for l in q_model.layers if isinstance(l, KerasQuantizationWrapper)]
-        assert len(original_conv_layers) == len(quantized_conv_layers), \
-            "Expects all conv layers from the original model to be wrapped with a KerasQuantizationWrapper."
-
 
     @pytest.mark.parametrize("quant_method", [QuantizationMethod.POWER_OF_TWO,
                                               QuantizationMethod.SYMMETRIC,
@@ -170,7 +138,43 @@ class TestPostTrainingQuantizationApi:
                 num_output_channels = quantize_wrapper.layer.kernel.shape[-1]
 
             params_shape = num_output_channels if per_channel else 1
-            _verify_weights_quantizer_params(quant_method, weights_quantizer, params_shape, per_channel)
+            self._verify_weights_quantizer_params(weights_quantizer, params_shape, quant_method, per_channel)
+
+
+    @staticmethod
+    def _verify_weights_quantizer_params(weights_quantizer, exp_params_shape, quant_method, per_channel):
+        assert weights_quantizer.per_channel == per_channel
+        assert weights_quantizer.quantization_method[0] == quant_method
+
+        if quant_method == QuantizationMethod.POWER_OF_TWO:
+            assert len(weights_quantizer.threshold) == exp_params_shape
+            for t in weights_quantizer.threshold:
+                assert np.log2(np.abs(t)).astype(int) == np.log2(np.abs(t))
+        elif quant_method == QuantizationMethod.SYMMETRIC:
+            assert len(weights_quantizer.threshold) == exp_params_shape
+        elif quant_method == QuantizationMethod.UNIFORM:
+            assert len(weights_quantizer.min_range) == exp_params_shape
+            assert len(weights_quantizer.max_range) == exp_params_shape
+
+    @staticmethod
+    def _verify_quantized_model_structure(model, q_model, quantization_info):
+        assert isinstance(q_model, keras.Model)
+        assert quantization_info is not None and isinstance(quantization_info, UserInformation)
+
+        # Assert quantized model structure
+        assert len([l for l in q_model.layers if isinstance(l, layers.BatchNormalization)]) == 0, \
+            "Expects BN folding in quantized model."
+        assert len([l for l in q_model.layers if isinstance(l, MetadataLayer)]) == 1, \
+            "Expects quantized model to have a metadata stored in a dedicated layer."
+        original_conv_layers = [l for l in model.layers if
+                                isinstance(l, (layers.Conv2D, layers.DepthwiseConv2D, layers.Dense))]
+        quantized_conv_layers = [l for l in q_model.layers if isinstance(l, KerasQuantizationWrapper)]
+        assert len(original_conv_layers) > 0
+        assert len(original_conv_layers) == len(quantized_conv_layers), \
+            "Expects all conv layers from the original model to be wrapped with a KerasQuantizationWrapper."
+
+
+
 
 
                 
