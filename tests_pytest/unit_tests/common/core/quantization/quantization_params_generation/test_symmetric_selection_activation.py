@@ -37,6 +37,7 @@ def hist():
 
 @pytest.fixture
 def bounded_hist():
+    # here, we want to test the threshold selection for
     np.random.seed(42)
     size = (32, 32, 3)
     num_bins = 2048
@@ -48,7 +49,7 @@ def bounded_hist():
     return count, bins
 
 
-err_methods_to_test = [e.name for e in QuantizationErrorMethod if e != QuantizationErrorMethod.HMSE]
+err_methods_to_test = [e for e in QuantizationErrorMethod if e != QuantizationErrorMethod.HMSE]
 
 
 @pytest.mark.parametrize("error_method", err_methods_to_test)
@@ -56,7 +57,7 @@ def test_symmetric_threshold_selection(error_method, hist):
     counts, bins = hist
 
     search_res = symmetric_selection_histogram(bins, counts, 2, 8, Mock(), Mock(), Mock(), Mock(),
-                                               MIN_THRESHOLD, QuantizationErrorMethod[error_method], True)
+                                               MIN_THRESHOLD, error_method, True)
 
     assert THRESHOLD in search_res
     assert SIGNED in search_res
@@ -69,7 +70,7 @@ def test_symmetric_threshold_selection_bounded_activation(error_method, bounded_
     counts, bins = bounded_hist
 
     search_res = symmetric_selection_histogram(bins, counts, 2, 8, Mock(), Mock(), Mock(), Mock(),
-                                               MIN_THRESHOLD, QuantizationErrorMethod[error_method], False)
+                                               MIN_THRESHOLD, error_method, False)
 
     assert THRESHOLD in search_res
     assert SIGNED in search_res
