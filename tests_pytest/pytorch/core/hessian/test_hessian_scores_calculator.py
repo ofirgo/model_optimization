@@ -106,6 +106,9 @@ class TestActivationHessianScoresCalculator:
         #     assert node_hess_score.shape == (BATCH_SIZE, 1)
 
         expected_hess_results = np.array([499, 508, 497, 499]).reshape((BATCH_SIZE, 1))
+        # TODO: replace exact values with:
+        #  1. magnitude - check that there is no change in an order of magnitude in the values/mean (and shape separatly)
+        #  2. variance - check large change when giving very changed input
         assert np.allclose(res[0], expected_hess_results, atol=0.01, rtol=0.0)
 
         # TODO: make setting for a general test for activation (extract expected results, model, target nodes and iterate over nodes to assert results
