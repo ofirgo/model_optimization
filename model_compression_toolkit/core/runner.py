@@ -78,6 +78,10 @@ def core_runner(in_model: Any,
 
     """
 
+    if core_config.debug_config.bypass:
+        graph = fw_impl.model_reader(in_model, representative_data_gen)
+        return graph, None, None, None
+
     # Warn is representative dataset has batch-size == 1
     batch_data = next(iter(representative_data_gen()))
     if isinstance(batch_data, list):
