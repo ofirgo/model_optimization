@@ -17,6 +17,7 @@ import copy
 from typing import Callable, Union
 
 from model_compression_toolkit.core.common.visualization.tensorboard_writer import init_tensorboard_writer
+from model_compression_toolkit.core.pytorch.back2framework.float_model_builder import FloatPyTorchModelBuilder
 from model_compression_toolkit.logger import Logger
 from model_compression_toolkit.constants import PYTORCH
 from model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema import TargetPlatformCapabilities
@@ -125,6 +126,10 @@ if FOUND_TORCH:
                                                                 fqc=framework_platform_capabilities,
                                                                 target_resource_utilization=target_resource_utilization,
                                                                 tb_w=tb_w)
+
+        if core_config.debug_config.bypass:
+            fmodel, _ = FloatPyTorchModelBuilder(graph=tg).build_model()
+            return get_exportable_pytorch_model(fmodel)
 
         # At this point, tg is a graph that went through substitutions (such as BN folding) and is
         # ready for quantization (namely, it holds quantization params, etc.) but the weights are

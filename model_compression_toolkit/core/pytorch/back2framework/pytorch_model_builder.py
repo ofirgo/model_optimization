@@ -225,7 +225,8 @@ class PytorchModel(torch.nn.Module):
         """
         super(PytorchModel, self).__init__()
         self.graph = copy.deepcopy(graph)
-        delattr(self.graph, 'fqc')
+        if hasattr(self.graph, 'fqc'):
+            delattr(self.graph, 'fqc')
 
         self.node_sort = list(topological_sort(self.graph))
         self.node_to_activation_quantization_holder = {}
